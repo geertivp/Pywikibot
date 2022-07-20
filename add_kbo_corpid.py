@@ -36,14 +36,13 @@ import re		    	# Regular expressions (very handy!)
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
 import time		    	# sleep
 import urllib.parse     # URL encoding/decoding (e.g. Wikidata Query URL)
-
 import pywikibot		# API interface to Wikidata
 from datetime import datetime	    # now, strftime, delta time, total_seconds
 from pywikibot import pagegenerators as pg # Wikidata Query interface
 
 # Global technical parameters
 modnm = 'Pywikibot add_kbo_corpid'  # Module name (using the Pywikibot package)
-pgmid = '2021-12-02 (gvp)'	        # Program ID and version
+pgmid = '2022-06-21 (gvp)'	        # Program ID and version
 
 """
     Static definitions
@@ -71,7 +70,7 @@ verbose = True		# Can be set with -q or -v (better keep verbose to monitor the b
 exitstat = 0        # (default) Exit status
 errwaitfactor = 4	# Extra delay after error; best to keep the default value (maximum delay of 4 x 150 = 600 s = 10 min)
 maxdelay = 150		# Maximum error delay in seconds (overruling any extreme long processing delays)
-minsucrate = 70.0   # Minimum success rate per target language (the script is stopped below this threshold)
+minsucrate = 80.0   # Minimum success rate per target language (the script is stopped below this threshold)
 
 # To be set in user-config.py (what parameters is PAWS using?)
 """
@@ -92,7 +91,7 @@ def fatal_error(errcode, errtext):
     global exitstat
 
     exitstat = max(exitstat, errcode)
-    logger.error(errtext)
+    logger.critical(errtext)
     if exitfatal:		# unless we ignore fatal errors
         sys.exit(exitstat)
     else:
@@ -112,25 +111,14 @@ MINUS { ?item wdt:P1320 ?enterprise_id. }
 }
 """
 
-# Print preferences
-    if verbose or debug:
-        print('Verbose mode:\t%s' % verbose)
-        print('Debug mode:\t%s' % debug)
-        print('Readonly mode:\t%s' % readonly)
-        print('Exit on fatal error:\t%s' % exitfatal)
-        print('Error wait factor:\t%d' % errwaitfactor)
-
 # Loop initialisation
     transcount = 0	    	# Total transaction counter
-    statcount = 0           # Statement count
-    pictcount = 0	    	# Picture count
-    safecount = 0	    	# Safe transaction
     errcount = 0	    	# Error counter
     errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
 
 # Avoid that the user is waiting for a response while the data is being queried
     if verbose:
-        print('\nProcessing statements')
+        print('\nProcessing KBO statements')
 
     generator = pg.WikidataSPARQLPageGenerator(querytxt, site=wikidata_site)
 
@@ -206,13 +194,13 @@ MINUS { ?item wdt:P1320 ?enterprise_id. }
             status = 'Stop'	# Ctrl-c trap; process next language, if any
             exitstat = max(exitstat, 2)
 
-        except pywikibot.exceptions.NoPageError as error:        # This works
+        except pywikibot.exceptions.NoPageError as error:           # Item does not exist
             logger.error(error)
             status = 'Not found'
             errcount += 1
             exitstat = max(exitstat, 12)
 
-        except pywikibot.exceptions.MaxlagTimeoutError as error:  # Attempt error recovery
+        except pywikibot.exceptions.MaxlagTimeoutError as error:    # Attempt error recovery
             logger.error('Error updating %s, %s' % (qnumber, error))
             status = 'Error'	    # Handle any generic error
             errcount += 1
@@ -248,7 +236,262 @@ MINUS { ?item wdt:P1320 ?enterprise_id. }
         if verbose or status not in ['OK']:		# Print transaction results
             isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
             totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
-            print('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, item.getID(), label, commonscat, alias, nationality, descr))
+            print('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, item.getID(), kbo_number, label, commonscat, alias, nationality, descr))
+
+
+def wd_search_all_corpid_numbers():
+    """
+    """
+
+    global exitstat
+
+    querytxt = """# Get all Belgian corpID numbers
+SELECT DISTINCT ?item WHERE {
+  ?item wdt:P1320 ?corpID.
+  FILTER(STRSTARTS(?corpID, "be/"))
+  MINUS { ?item wdt:P3376 ?kbo_number. }
+}
+
+"""
+
+# Loop initialisation
+    transcount = 0	    	# Total transaction counter
+    errcount = 0	    	# Error counter
+    errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
+
+# Avoid that the user is waiting for a response while the data is being queried
+    if verbose:
+        print('\nProcessing corpID statements')
+
+    generator = pg.WikidataSPARQLPageGenerator(querytxt, site=wikidata_site)
+
+# Transaction timing
+    now = datetime.now()	# Start the main transaction timer
+    status = 'Start'		# Force loop entry
+
+# Process all items in the list
+    for item in generator:	# Main loop for all DISTINCT items
+
+## alow removing conflicts
+      if status != 'Stop':	# Ctrl-c pressed -> stop in a proper way
+
+        transcount += 1	# New transaction
+        status = 'Fail'
+        alias = ''
+        descr = ''
+        commonscat = '' # Commons category
+        nationality = ''
+        label = ''
+
+        try:			# Error trapping (prevents premature exit on transaction error)
+            item.get(get_redirect=True)
+            
+            if mainlang in item.labels:
+                label = item.labels[mainlang]
+
+            if mainlang in item.descriptions:
+                descr = item.descriptions[mainlang]
+
+            if mainlang in item.aliases:
+                alias  = item.aliases[mainlang]
+
+            if 'P1320' in item.claims and 'P3376' not in item.claims:   # Runtime check required (statement could have been deleted)
+                for seq in item.claims['P1320']:        # Search for a valid Belgian enterprise number
+                    kbo_number = seq.getTarget()
+
+                    valid_kbo = False
+                    if 'P582' in seq.qualifiers:        # Should not have an end-date
+                        continue
+                    elif corpidnumre.search(kbo_number):   # 10 digits
+                        kbo_number = kbo_number[3:]
+                        valid_kbo = True
+
+                    if valid_kbo:           # Add missing Corporate ID
+                        claim = pywikibot.Claim(repo, 'P3376')
+                        claim.setTarget(kbo_number)
+                        item.addClaim(claim, bot=True, summary=transcmt)
+                        status = 'Update'
+                        break
+
+            if 'P17' not in item.claims:                # Mandatory country BE, because having Belgian enterprise number
+                claim = pywikibot.Claim(repo, 'P17')
+                claim.setTarget(pywikibot.ItemPage(repo, 'Q31'))
+                item.addClaim(claim, bot=True, summary=transcmt)
+
+        except KeyboardInterrupt:
+            status = 'Stop'	# Ctrl-c trap; process next language, if any
+            exitstat = max(exitstat, 2)
+
+        except pywikibot.exceptions.NoPageError as error:           # Item does not exist
+            logger.error(error)
+            status = 'Not found'
+            errcount += 1
+            exitstat = max(exitstat, 12)
+
+        except pywikibot.exceptions.MaxlagTimeoutError as error:    # Attempt error recovery
+            logger.error('Error updating %s, %s' % (qnumber, error))
+            status = 'Error'	    # Handle any generic error
+            errcount += 1
+            exitstat = max(exitstat, 20)
+            deltasecs = int((datetime.now() - now).total_seconds())	# Calculate technical error penalty
+            if deltasecs >= 30: 	# Technical error; for transactional errors there is no wait time increase
+                errsleep += errwaitfactor * min(maxdelay, deltasecs)
+                # Technical errors get additional penalty wait
+				# Consecutive technical errors accumulate the wait time, until the first successful transaction
+				# We limit the delay to a multitude of maxdelay seconds
+            if errsleep > 0:    	# Allow the servers to catch up; slowdown the transaction rate
+                logger.error('%d seconds maxlag wait' % (errsleep))
+                time.sleep(errsleep)
+
+        except Exception as error:  # other exception to be used
+            logger.error(error)
+            status = 'Error'	    # Handle any generic error
+            errcount += 1
+            exitstat = max(exitstat, 20)
+            if exitfatal:           # Stop on first error
+                raise
+
+        """
+    The transaction was either executed correctly, or an error occurred.
+    Possibly already a system error message was issued.
+    We will report the results here, as much as we can, one line per item.
+        """
+
+# Get the elapsed time in seconds and the timestamp in string format
+        prevnow = now	        	# Transaction status reporting
+        now = datetime.now()	    # Refresh the timestamp to time the following transaction
+
+        if verbose or status not in ['OK']:		# Print transaction results
+            isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
+            totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
+            print('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, item.getID(), kbo_number, label, commonscat, alias, nationality, descr))
+
+
+def wd_search_all_vta_numbers():
+    """
+    """
+
+    global exitstat
+
+    querytxt = """# Get all Belgian TVA numbers
+SELECT DISTINCT ?item WHERE {
+  ?item wdt:P3608 ?TVAnr.
+  FILTER(STRSTARTS(?TVAnr, "BE0"))
+  MINUS { ?item wdt:P3376 ?kbo_number. }
+}
+"""
+
+# Loop initialisation
+    transcount = 0	    	# Total transaction counter
+    errcount = 0	    	# Error counter
+    errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
+
+# Avoid that the user is waiting for a response while the data is being queried
+    if verbose:
+        print('\nProcessing TVA statements')
+
+    generator = pg.WikidataSPARQLPageGenerator(querytxt, site=wikidata_site)
+
+# Transaction timing
+    now = datetime.now()	# Start the main transaction timer
+    status = 'Start'		# Force loop entry
+
+# Process all items in the list
+    for item in generator:	# Main loop for all DISTINCT items
+
+## alow removing conflicts
+      if status != 'Stop':	# Ctrl-c pressed -> stop in a proper way
+
+        transcount += 1	# New transaction
+        status = 'Fail'
+        alias = ''
+        descr = ''
+        commonscat = '' # Commons category
+        nationality = ''
+        label = ''
+
+        try:			# Error trapping (prevents premature exit on transaction error)
+            item.get(get_redirect=True)
+            
+            if mainlang in item.labels:
+                label = item.labels[mainlang]
+
+            if mainlang in item.descriptions:
+                descr = item.descriptions[mainlang]
+
+            if mainlang in item.aliases:
+                alias  = item.aliases[mainlang]
+
+            if 'P3608' in item.claims and 'P3376' not in item.claims:   # Runtime check required (statement could have been deleted)
+                for seq in item.claims['P3608']:        # Search for a valid Belgian enterprise number
+                    kbo_number = seq.getTarget()
+
+                    valid_kbo = False
+                    if 'P582' in seq.qualifiers:        # Should not have an end-date
+                        continue
+                    elif betvanumre.search(kbo_number):   # 10 digits
+                        kbo_number = kbo_number[2:]
+                        valid_kbo = True
+
+                    if valid_kbo:           # Add missing Corporate ID
+                        claim = pywikibot.Claim(repo, 'P3376')
+                        claim.setTarget(kbo_number)
+                        item.addClaim(claim, bot=True, summary=transcmt)
+                        status = 'Update'
+                        break
+
+            if 'P17' not in item.claims:                # Mandatory country BE, because having Belgian enterprise number
+                claim = pywikibot.Claim(repo, 'P17')
+                claim.setTarget(pywikibot.ItemPage(repo, 'Q31'))
+                item.addClaim(claim, bot=True, summary=transcmt)
+
+        except KeyboardInterrupt:
+            status = 'Stop'	# Ctrl-c trap; process next language, if any
+            exitstat = max(exitstat, 2)
+
+        except pywikibot.exceptions.NoPageError as error:           # Item does not exist
+            logger.error(error)
+            status = 'Not found'
+            errcount += 1
+            exitstat = max(exitstat, 12)
+
+        except pywikibot.exceptions.MaxlagTimeoutError as error:    # Attempt error recovery
+            logger.error('Error updating %s, %s' % (qnumber, error))
+            status = 'Error'	    # Handle any generic error
+            errcount += 1
+            exitstat = max(exitstat, 20)
+            deltasecs = int((datetime.now() - now).total_seconds())	# Calculate technical error penalty
+            if deltasecs >= 30: 	# Technical error; for transactional errors there is no wait time increase
+                errsleep += errwaitfactor * min(maxdelay, deltasecs)
+                # Technical errors get additional penalty wait
+				# Consecutive technical errors accumulate the wait time, until the first successful transaction
+				# We limit the delay to a multitude of maxdelay seconds
+            if errsleep > 0:    	# Allow the servers to catch up; slowdown the transaction rate
+                logger.error('%d seconds maxlag wait' % (errsleep))
+                time.sleep(errsleep)
+
+        except Exception as error:  # other exception to be used
+            logger.error(error)
+            status = 'Error'	    # Handle any generic error
+            errcount += 1
+            exitstat = max(exitstat, 20)
+            if exitfatal:           # Stop on first error
+                raise
+
+        """
+    The transaction was either executed correctly, or an error occurred.
+    Possibly already a system error message was issued.
+    We will report the results here, as much as we can, one line per item.
+        """
+
+# Get the elapsed time in seconds and the timestamp in string format
+        prevnow = now	        	# Transaction status reporting
+        now = datetime.now()	    # Refresh the timestamp to time the following transaction
+
+        if verbose or status not in ['OK']:		# Print transaction results
+            isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
+            totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
+            print('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, item.getID(), kbo_number, label, commonscat, alias, nationality, descr))
 
 
 def show_help_text():
@@ -330,15 +573,12 @@ except:
 """
 
 helpre = re.compile(r'^(.*\n)+\nDocumentation:\n\n(.+\n)+')  # Help text
-humsqlre = re.compile(r'\s*#.*\n')          # Human readable query, remove all comments including LF
-comsqlre = re.compile(r'\s+')		        # Computer readable query, remove duplicate whitespace
-urlbre = re.compile(r'[^\[\]]+')	        # Remove URL square brackets (keep the article page name)
-suffre = re.compile(r'\s*[(,]')		        # Remove () and , suffix (keep only the base label)
 kbonumre = re.compile(r'^0[0-9]{9}$')       # Belgian enterprise number
 kbolnumre = re.compile(r'^0[0-9]{3}\.[0-9]{3}\.[0-9]{3}$')       # Belgian enterprise number (long)
 kbosnumre = re.compile(r'^[0-9]{9}$')       # Belgian enterprise number (short)
+betvanumre = re.compile(r'^BE0[0-9]{9}$')       # Belgian TVA number
+corpidnumre = re.compile(r'^be/0[0-9]{9}$')       # Belgian TVA number
 langre = re.compile(r'^[a-z]{2,3}$')        # Verify for valid ISO 639-1 language codes
-qsuff = re.compile(r'Q[0-9]+')             # Q-number
 
 inlang = '-'
 while len(sys.argv) > 0 and inlang.startswith('-'):
@@ -353,13 +593,20 @@ if verbose or debug:
     print('Main language:\t%s' % mainlang)
     print('Maximum delay:\t%d s' % maxdelay)
     print('Minimum success rate:\t%f%%' % minsucrate)
+    print('Verbose mode:\t%s' % verbose)
+    print('Debug mode:\t%s' % debug)
+    print('Readonly mode:\t%s' % readonly)
+    print('Exit on fatal error:\t%s' % exitfatal)
+    print('Error wait factor:\t%d' % errwaitfactor)
 
 # Connect to database
-transcmt = 'Pwb add kbo corpid'	    	    # Wikidata transaction comment
+transcmt = '#pwb Add kbo corpid'	    	    # Wikidata transaction comment
 wikidata_site = pywikibot.Site('wikidata', 'wikidata')  # Login to Wikibase instance
 repo = wikidata_site.data_repository()
 
-wd_proc_all_items()	# Execute all items for one language
+wd_search_all_vta_numbers()     # Search all VTA numbers
+wd_proc_all_items()	            # Execute all items for one language
+wd_search_all_corpid_numbers()  # Search all BE corpID numbers
 
 """
     Print all sitelinks (base addresses)
@@ -375,15 +622,6 @@ sys.exit(exitstat)
 
 # Einde van de miserie
 """
-
-Reverse query:
-
-    SELECT DISTINCT ?item ?Belgium ?BelgiumLabel WHERE {
-      ?item wdt:P1320 ?enterprise_id, ?corpID;
-        wdt:P17 wd:Q31.
-      FILTER(STRSTARTS(?corpID, "be/"))
-      MINUS { ?item wdt:P3376 ?kbo_number. }
-    }
 
 
 """
