@@ -9,7 +9,7 @@ Parameters:
 
     Optional:
 
-        P1:         library (goob openl wiki) - default goob "-"
+        P1:         library (goob openl wiki bol dnb kb loc worldcat) default goob "-"
         P2:         language code (default LANG)
         P3 P4...:   P/Q pairs for additional claims (repeated)
 
@@ -82,11 +82,19 @@ Documentation:
     https://doc.wikimedia.org/pywikibot/master/
     https://docs.python.org/3/howto/logging.html
     https://wikitech.wikimedia.org/wiki/Portal:Toolforge
+    http://www.isbn.org/standards/home/isbn/international/hyphenation-instructions.asp
 
 Prerequisites:
 
     pywikibot
-    pip install isbnlib
+    https://pypi.org/search/?q=isbnlib_
+        pip install isbnlib
+        pip install isbnlib-bol
+        pip install isbnlib-bnf
+        pip install isbnlib-dnb
+        pip install isbnlib-kb
+        pip install isbnlib-loc
+        pip install isbnlib-worldcat2
 
 Restrictions:
 
@@ -94,9 +102,13 @@ Restrictions:
 
 Known problems:
 
+    * Unknown ISBN 9789400012820
     * Not all ISBN attributes are listed by the webservice(s)
     * Multiple webservice calls (script might take time, but it is automated)
     * Amend ISBN items that have no author, publisher, or other data (which service to use?)
+    * No ISBN data available for an edition either causes no output (goob = Google Books), or an error message (wiki, openl)
+    * How to add more digital libraries?
+    * SPARQL queries run on replicated database (out of sync)
 
 Algorithm:
 
@@ -115,6 +127,19 @@ Environment:
         Google Chromebook (Linux container)
         Toolforge Portal
         PAWS
+
+GitHub:
+
+    https://github.com/geertivp/Pywikibot/blob/main/create_isbn_edition.py
+
+Phabricator:
+
+    https://phabricator.wikimedia.org/T314942 (this script)
+    https://phabricator.wikimedia.org/T282719
+    https://phabricator.wikimedia.org/T214802
+    https://phabricator.wikimedia.org/T208134
+    https://phabricator.wikimedia.org/T138911
+    https://phabricator.wikimedia.org/T20814
 
 Author: Geert Van Pamel, 2022-08-04, GNU General Public License v3.0, User:Geertivp
 
@@ -219,21 +244,23 @@ Parameters:
 
     isbn_number:    ISBN number
     """
-
+    isbn_number = isbn_number.strip()
+    if isbn_number == '':
+        return 3
+        
     # Validate ISBN data
     try:
         isbn_data = meta(isbn_number, service=booklib)
         #print(isbn_data)
         # {'ISBN-13': '9789042925564', 'Title': 'De Leuvense Vaart - Van De Vaartkom Tot Wijgmaal. Aspecten Uit De Industriele Geschiedenis Van Leuven', 'Authors': ['A. Cresens'], 'Publisher': 'Peeters Pub & Booksellers', 'Year': '2012', 'Language': 'nl'}
     except Exception as error:
-        # When the book is unknown the program stops
+        # When the book is unknown the function returns
         logger.error(error)
         #raise ValueError(error)
         return 3
 
     if len(isbn_data) < 6:
-        if len(isbn_data) > 0:
-            logger.error('Incomplete digital library registration for %s' % isbn_number)
+        logger.error('Unknown or incomplete digital library registration for %s' % isbn_number)
         return 3
 
     # Show the raw results
@@ -242,7 +269,7 @@ Parameters:
 
     # Get the language from the ISBN book reference
     if isbn_data['Language'] != '':
-        mainlang = isbn_data['Language']
+        mainlang = isbn_data['Language'].strip()
 
     lang_list = list(get_item_list(mainlang, propreqinst['P407']))
     if len(lang_list) == 1:
@@ -311,10 +338,14 @@ Parameters:
     print(target)
     for propty in target:
         if propty not in item.claims:
+            if propty not in proptyx:
+                proptyx[propty] = pywikibot.PropertyPage(repo, propty)
+            targetx[propty] = pywikibot.ItemPage(repo, target[propty])
+
             try:
                 logger.warning('Add %s (%s): %s (%s)' % (proptyx[propty].labels[mainlang], propty, targetx[propty].labels[mainlang], target[propty]))
             except:
-                pass
+                logger.warning('Add %s:%s' % (propty, target[propty]))
 
             claim = pywikibot.Claim(repo, propty)
             claim.setTarget(targetx[propty])
@@ -351,45 +382,48 @@ Parameters:
     # Get the author list
     author_cnt = 0
     for author_name in isbn_data['Authors']:
-        author_cnt += 1
-        author_list = list(get_item_list(author_name, 'Q5'))
+        author_name = author_name.strip()
+        if author_name != '':
+            author_cnt += 1
+            author_list = list(get_item_list(author_name, 'Q5'))
 
-        if len(author_list) == 1:
-            add_author = True
-            if 'P50' in item.claims:
-                for seq in item.claims['P50']:
-                    if seq.getTarget().getID() == author_list[0]:
-                        add_author = False
-                        break
+            if len(author_list) == 1:
+                add_author = True
+                if 'P50' in item.claims:
+                    for seq in item.claims['P50']:
+                        if seq.getTarget().getID() == author_list[0]:
+                            add_author = False
+                            break
 
-            if add_author:
-                logger.warning('Add author %d (P50): %s (%s)' % (author_cnt, author_name, author_list[0]))
-                claim = pywikibot.Claim(repo, 'P50')
-                claim.setTarget(pywikibot.ItemPage(repo, author_list[0]))
-                item.addClaim(claim, bot=True, summary=transcmt)
+                if add_author:
+                    logger.warning('Add author %d (P50): %s (%s)' % (author_cnt, author_name, author_list[0]))
+                    claim = pywikibot.Claim(repo, 'P50')
+                    claim.setTarget(pywikibot.ItemPage(repo, author_list[0]))
+                    item.addClaim(claim, bot=True, summary=transcmt)
 
-                qualifier = pywikibot.Claim(repo, 'P1545')
-                qualifier.setTarget(str(author_cnt))
-                claim.addQualifier(qualifier, summary=transcmt)
-        elif len(author_list) == 0:
-            logger.warning('Unknown author %s' % author_name)
-        else:
-            logger.warning('Ambiguous author %s' % author_name)
+                    qualifier = pywikibot.Claim(repo, 'P1545')
+                    qualifier.setTarget(str(author_cnt))
+                    claim.addQualifier(qualifier, summary=transcmt)
+            elif len(author_list) == 0:
+                logger.warning('Unknown author %s' % author_name)
+            else:
+                logger.warning('Ambiguous author %s' % author_name)
 
     # Get the publisher
-    publisher_name = isbn_data['Publisher']
-    publisher_list = list(get_item_list(publisher_name, 'Q2085381'))
+    publisher_name = isbn_data['Publisher'].strip()
+    if publisher_name != '':
+        publisher_list = list(get_item_list(publisher_name, 'Q2085381'))
 
-    if len(publisher_list) == 1:
-        if 'P123' not in item.claims:
-            logger.warning('Add publisher (P123): %s (%s)' % (publisher_name, publisher_list[0]))
-            claim = pywikibot.Claim(repo, 'P123')
-            claim.setTarget(pywikibot.ItemPage(repo, publisher_list[0]))
-            item.addClaim(claim, bot=True, summary=transcmt)
-    elif len(publisher_list) == 0:
-        logger.warning('Unknown publisher %s' % publisher_name)
-    else:
-        logger.warning('Ambiguous publisher %s' % publisher_name)
+        if len(publisher_list) == 1:
+            if 'P123' not in item.claims:
+                logger.warning('Add publisher (P123): %s (%s)' % (publisher_name, publisher_list[0]))
+                claim = pywikibot.Claim(repo, 'P123')
+                claim.setTarget(pywikibot.ItemPage(repo, publisher_list[0]))
+                item.addClaim(claim, bot=True, summary=transcmt)
+        elif len(publisher_list) == 0:
+            logger.warning('Unknown publisher %s' % publisher_name)
+        else:
+            logger.warning('Ambiguous publisher %s' % publisher_name)
 
     # Get addional data from the digital library
     isbn_cover = cover(isbn_number)
@@ -467,9 +501,9 @@ Parameters:
                 qmain_subject = main_subject.getID()
                 try:
                     main_subject_label = main_subject.labels[mainlang]
-                    logger.warning('Found main subject %s (%s) for Fast ID %s' % (main_subject_label, qmain_subject, fast_id))
+                    logger.info('Found main subject %s (%s) for Fast ID %s' % (main_subject_label, qmain_subject, fast_id))
                 except:
-                    logger.warning('Found main subject (%s) for Fast ID %s' % (qmain_subject, fast_id))
+                    logger.info('Found main subject (%s) for Fast ID %s' % (qmain_subject, fast_id))
                     logger.error('Missing label for item %s' % qmain_subject)
 
             # Create or amend P921 statement
