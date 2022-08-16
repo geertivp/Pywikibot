@@ -1,9 +1,10 @@
 #!/home/geertivp/pwb/bin/python3
 
 codedoc = """
-Pywikibot script to get ISBN data and create or amend the Wikidata item for edition (P212)
+Pywikibot script to get ISBN data from a digital library,
+and create or amend the related Wikidata item for edition (with external ID P212).
 
-Use digital libraries to get ISBN data in JSON format, and integrate it into Wikidata.
+Use digital libraries to get ISBN data in JSON format, and integrate the results into Wikidata.
 
 Parameters:
 
@@ -24,32 +25,40 @@ Parameters:
             wiki    wikipedia.org
             worldcat    WorldCat
 
-        P2:         ISO 639-1 language code (default LANG)
+        P2:         ISO 639-1 language code
+                Default LANG; e.g. en, nl, fr, de, es, it, etc.
+
         P3 P4...:   P/Q pairs to add additional claims (repeated)
+                e.g. P921 Q107643461 (main subject: database management linked to P2163 Fast ID)
 
     stdin: ISBN numbers (International standard book number)
-        Free text (e.g. Wikipedia references list) is accepted.
-        Identification via ISBN regex expression.
+        Free text (e.g. Wikipedia references list, or publication list) is accepted.
+        Identification is done via an ISBN regex expression.
 
 Functionality:
 
     * The ISBN number is used as a primary key (no duplicates allowed)
+        The data update is not performed when no unique match
     * Statements are added or merged incrementally; existing data is not overwritten.
-    * Authors and publishers are searched to get their item number (skip ambiguous items)
-    * Book title and subtitle are separated with '.'
+    * Authors and publishers are searched to get their item number (ambiguous items are skipped)
+    * Book title and subtitle are separated with '.', ':', or '-'
     * This script can be run incrementally with the same parameters
-        Caveat: Take into account the Wikidata Query database replication delay (wait for minimum 5 minutes to avoid creating duplicate objects)
+        Caveat: Take into account the Wikidata Query database replication delay.
+        Wait for minimum 5 minutes to avoid creating duplicate objects.
 
 Data quality:
 
-    * Run https://query.wikidata.org/querybuilder/ to identify P212 duplicates (merge duplicate items before running the script again)
+    * Use https://query.wikidata.org/querybuilder/ to identify P212 duplicates
+        Merge duplicate items before running the script again.
 
 Examples:
 
-    ./create_isbn_edition.py                            # Default library (Google Books) and language (LANG)
+    # Default library (Google Books), language (LANG), no additional statements
+    ./create_isbn_edition.py
     9789042925564
 
-    ./create_isbn_edition.py wiki en P921 Q107643461    # Wikimedia, language Dutch, main subject: database management
+    # Wikimedia, language Dutch, main subject: database management
+    ./create_isbn_edition.py wiki en P921 Q107643461
     978-0-596-10089-6
 
 Return status:
@@ -84,6 +93,7 @@ External identifiers:
 
     P213:   ISNI ID
     P243:   OCLC ID
+    P496:   ORCID iD
     P675:   Google Books-identificatiecode
     P1036:  Dewey Decimal Classification
     P2163:  Fast ID (inverse lookup via Wikidata Query) -> P921: main subject
@@ -121,6 +131,7 @@ Prerequisites:
 
     pywikibot
 
+    Install the following ISBN lib packages:
     https://pypi.org/search/?q=isbnlib_
 
         pip install isbnlib (mandatory)
@@ -136,21 +147,27 @@ Prerequisites:
 
 Restrictions:
 
-    * Better use the ISO 639-1 language code parameter as a default (the language code is not always available from the digital library)
-    * SPARQL queries run on a replicated database (possible delay; wait 5 minutes to retry)
+    * Better use the ISO 639-1 language code parameter as a default
+        The language code is not always available from the digital library.
+    * SPARQL queries run on a replicated database
+        Possible important replication delay; wait 5 minutes before retry -- otherwise risk for creating duplicates.
 
 Known problems:
 
     * Unknown ISBN, e.g. 9789400012820
+    * No ISBN data available for an edition either causes no output (goob = Google Books), or an error message (wiki, openl)
+        The script is taking care of both
     * Only 6 ISBN attributes are listed by the webservice(s)
         missing are e.g.: place of publication, number of pages
     * Not all ISBN atttributes have data (authos, publisher, date of publication, language)
     * The script uses multiple webservice calls (script might take time, but it is automated)
     * Need to amend ISBN items that have no author, publisher, or other required data (which additional services to use?)
-    * No ISBN data available for an edition either causes no output (goob = Google Books), or an error message (wiki, openl)
-        script is taking care of both
     * How to add still more digital libraries?
         * Does the KBR has a public ISBN service (Koninklijke Bibliotheek van België)?
+
+To do:
+
+    * Add source reference (digital library instance)
 
 Algorithm:
 
@@ -163,26 +180,50 @@ Algorithm:
 
 Environment:
 
-    The python script can run on:
+    The python script can run on the following platforms:
     
         Linux client
         Google Chromebook (Linux container)
         Toolforge Portal
         PAWS
 
-Source:
+    LANG: ISO 639-1 language code
+
+Source code:
 
     https://github.com/geertivp/Pywikibot/blob/main/create_isbn_edition.py
+
+Applications:
+
+    Generate a book reference
+        Example: {{Cite Q|Q63413107}}
+        See also:
+            https://meta.wikimedia.org/wiki/WikiCite
+            https://www.wikidata.org/wiki/Q22321052
+            https://www.mediawiki.org/wiki/Global_templates
+            https://www.wikidata.org/wiki/Wikidata:WikiProject_Source_MetaData
+
+Wikidata Query:
+
+    List of editions about musicians - https://w.wiki/5aaz
 
 Related projects:
 
     https://phabricator.wikimedia.org/T314942 (this script)
+    
+    (other projects)
     https://phabricator.wikimedia.org/T282719
     https://phabricator.wikimedia.org/T214802
     https://phabricator.wikimedia.org/T208134
     https://phabricator.wikimedia.org/T138911
     https://phabricator.wikimedia.org/T20814
     https://en.wikipedia.org/wiki/User:Citation_bot
+    https://meta.wikimedia.org/wiki/Community_Wishlist_Survey_2021/Wikidata/Bibliographical_references/sources_for_wikidataitems
+
+Other systems:
+
+    https://en.wikipedia.org/wiki/bibliographic_database
+    https://www.titelbank.nl/pls/ttb/f?p=103:4012:::NO::P4012_TTEL_ID:3496019&cs=19BB8084860E3314502A1F777F875FE61
 
 """
 
@@ -197,23 +238,26 @@ from pywikibot import pagegenerators as pg # Wikidata Query interface
 from pywikibot.data import api
 
 # Initialisation
-debug = True
-booklib = 'goob'
-isbnre = re.compile(r'[0-9-]{13,}')         # ISBN number
-propre = re.compile(r'P[0-9]+')             # P-number
-qsuffre = re.compile(r'Q[0-9]+')            # Q-number
+debug = True            # Show debugging information
+verbose = True          # Verbose mode
+
+booklib = 'goob'        # Default digital library
+isbnre = re.compile(r'[0-9-]{13,}')         # ISBN number: 13 digits with optional dashes (-)
+propre = re.compile(r'P[0-9]+')             # Wikidata P-number
+qsuffre = re.compile(r'Q[0-9]+')            # Wikidata Q-number
 
 # Other statements are added via command line parameters
 target = {
-'P31':'Q3331189',                 # Is an instance of edition
+'P31':'Q3331189',                           # Is an instance of an edition
 }
 
-# Statement and instance validation rules
+# Statement property and instance validation rules
 propreqinst = {
-'P407':{'Q34770', 'Q33742', 'Q1288568'},        # (living, natural) language
+'P407':{'Q34770', 'Q33742', 'Q1288568'},    # (living, natural) language
+# Add here more validation rules
 }
 
-mainlang = os.getenv('LANG', 'nl')[:2]          # Default description language
+mainlang = os.getenv('LANG', 'en')[:2]      # Default description language
 
 # Connect to database
 transcmt = '#pwb Create ISBN edition'	    	        # Wikidata transaction comment
@@ -228,6 +272,7 @@ Verify if statement list contains at least one item from the checklist
 Parameters:
 
     statement_list: Statement list
+
     checklist:      List of values (string)
 
 Returns:
@@ -246,19 +291,20 @@ Returns:
 
 def get_item_list(item_name, instance_id):
     """
-Get list of items by name
+Get list of items by name, belonging to an instance (list)
 
 Parameters:
 
     item_name:      Item name (string; case sensitive)
+
     instance_id:    Instance ID (string, set, or list)
 
 Returns:
 
-    Set of items        
+    Set of items (Q-numbers)
     """
 
-    item_list = set()
+    item_list = set()       # Empty set
     params = {'action': 'wbsearchentities', 'format': 'json', 'type': 'item', 'strictlanguage': False,
               'language': mainlang,       # All languages are searched, but labels are in native language
               'search': item_name}        # Get item list from label
@@ -270,14 +316,14 @@ Returns:
             item = pywikibot.ItemPage(repo, res['id'])
             item.get(get_redirect = True)
             if 'P31' in item.claims:
-                for seq in item.claims['P31']:       # Instance
-                    if seq.getTarget().getID() in instance_id:
-                        for lang in item.labels:
-                            if unidecode.unidecode(item_name.lower()) == unidecode.unidecode(item.labels[lang].lower()):
-                                item_list.add(item.getID())
+                for seq in item.claims['P31']:       # Loop through instances
+                    if seq.getTarget().getID() in instance_id:  # Matching instance
+                        for lang in item.labels:                # Search all languages
+                            if unidecode.unidecode(item_name.lower()) == unidecode.unidecode(item.labels[lang].lower()):    # Ignore label case and accents
+                                item_list.add(item.getID())     # Label math
                         for lang in item.aliases:
-                            if item_name in item.aliases[lang]: # Case sensitive
-                                item_list.add(item.getID())
+                            if item_name in item.aliases[lang]: # Case sensitive for aliases
+                                item_list.add(item.getID())     # Alias match
     return item_list
 
 
@@ -288,15 +334,20 @@ Amend ISBN registration.
 Parameters:
 
     isbn_number:    ISBN number
+
+Result:
+
+    Amend Wikidata, depending on the data obtained from the digital library.
     """
     global proptyx
 
     isbn_number = isbn_number.strip()
     if isbn_number == '':
-        return 3
+        return 3    # Do nothing when the ISBN number is missing
         
     # Validate ISBN data
-    print()
+    if verbose:
+        print()
     try:
         isbn_data = meta(isbn_number, service=booklib)
         logger.info(isbn_data)
@@ -312,11 +363,12 @@ Parameters:
         return 3
 
     # Show the raw results
-    for i in isbn_data:
-        print('%s:\t%s' % (i, isbn_data[i]))
+    if verbose:
+        for i in isbn_data:
+            print('%s:\t%s' % (i, isbn_data[i]))
 
     # Get the book language from the ISBN book reference
-    booklang = mainlang
+    booklang = mainlang         # Default language
     if isbn_data['Language'] != '':
         booklang = isbn_data['Language'].strip()
         lang_list = list(get_item_list(booklang, propreqinst['P407']))
@@ -332,11 +384,15 @@ Parameters:
     # Get formatted ISBN number
     isbn_number = isbn_data['ISBN-13']  # Numeric format
     isbn_fmtd = mask(isbn_number)       # Canonical format
-    print()
+    if verbose:
+        print()
     print(isbn_fmtd)                    # First one
 
     # Get (sub)title when there is a dot
-    titles = isbn_data['Title'].split('.')
+    titles = isbn_data['Title'].split('.')          # goob is using a '.'
+    for i in ':-':
+        if len(titles) == 1:
+            titles = isbn_data['Title'].split(i)    # Extract subtitle
     objectname = titles[0].strip()
     subtitle = ''
     if len(titles) > 1:
@@ -344,21 +400,21 @@ Parameters:
 
     # Print book titles
     if debug:
-        print(objectname)
-        print(subtitle)                     # Optional
-        for i in range(2,len(titles)):      # Print subsequent subtitles, when available
-            print(titles[i].strip())
+        print(objectname, file=sys.stderr)
+        print(subtitle, file=sys.stderr)                # Optional
+        for i in range(2,len(titles)):                  # Print subsequent subtitles, when available
+            print(titles[i].strip(), file=sys.stderr)   # Not stored in Wikidata...
 
     # Search the ISBN number in Wikidata both canonical and numeric
     isbn_query = ("""# Get ISBN number
-    SELECT ?item WHERE {
-      VALUES ?isbn_number {
-        "%s"
-        "%s"
-      }
-      ?item wdt:P212 ?isbn_number.
-    }
-    """ % (isbn_fmtd, isbn_number))      # P212 should have canonical hyphenated format
+SELECT ?item WHERE {
+  VALUES ?isbn_number {
+    "%s"
+    "%s"
+  }
+  ?item wdt:P212 ?isbn_number.
+}
+""" % (isbn_fmtd, isbn_number))      # P212 should have canonical hyphenated format
 
     logger.info(isbn_query)
     generator = pg.WikidataSPARQLPageGenerator(isbn_query, site=wikidata_site)
@@ -386,8 +442,9 @@ Parameters:
     # Add all P/Q values
     # Make sure that labels are known in the native language
     if debug:
-        print(target)
+        print(target, file=sys.stderr)
 
+    # Register statements
     for propty in target:
         if propty not in item.claims:
             if propty not in proptyx:
@@ -484,20 +541,20 @@ Parameters:
     isbn_doi = doi(isbn_number)
     isbn_info = info(isbn_number)
 
-    print()
-    print(isbn_info)
-    print(isbn_doi)
-    print(isbn_editions)
+    if verbose:
+        print()
+        print(isbn_info)
+        print(isbn_doi)
+        print(isbn_editions)
 
     # Book cover images
     for i in isbn_cover:
         print('%s:\t%s' % (i, isbn_cover[i]))
 
     # Handle ISBN classification
-
     isbn_classify = classify(isbn_number)
     if debug:
-        print(isbn_classify)
+        print(isbn_classify, file=sys.stderr)
 
     # ./create_isbn_edition.py '978-3-8376-5645-9' - de P407 Q188
     # Q113460204
@@ -542,10 +599,10 @@ Parameters:
 
             # Get the main subject
             main_subject_query = ("""# Search the main subject
-    SELECT ?item WHERE {
-      ?item wdt:P2163 "%s".
-    }
-    """ % (fast_id))
+SELECT ?item WHERE {
+  ?item wdt:P2163 "%s".
+}
+""" % (fast_id))
 
             logger.info(main_subject_query)
             generator = pg.WikidataSPARQLPageGenerator(main_subject_query, site=wikidata_site)
@@ -567,7 +624,7 @@ Parameters:
                 logger.error('Main subject not found for Fast ID %s' % (fast_id))
             elif rescnt == 1:
                 add_main_subject = True
-                if 'P921' in item.claims:
+                if 'P921' in item.claims:               # Check for duplicates
                     for seq in item.claims['P921']:
                         if seq.getTarget().getID() == qmain_subject:
                             add_main_subject = False
@@ -604,7 +661,7 @@ logger = logging.getLogger('create_isbn_edition')
 ##logger.setLevel(logging.DEBUG)
 
 pgmnm = sys.argv.pop(0)
-logger.debug('%s %s' % (pgmnm, '2022-08-12 (gvp)'))
+logger.debug('%s %s' % (pgmnm, '2022-08-16 (gvp)'))
 
 # Get optional parameters
 
@@ -639,8 +696,8 @@ for propty in target:
         sys.exit(12)
 
 # Get list of item numbers
-inputfile = sys.stdin.read()
-itemlist = sorted(set(isbnre.findall(inputfile)))
+inputfile = sys.stdin.read()            # Typically the Appendix list of references of e.g. a Wikipedia page containing ISBN numbers
+itemlist = sorted(set(isbnre.findall(inputfile)))   # Extract all ISBN numbers
 
-for isbn_number in itemlist:
+for isbn_number in itemlist:            # Process the next edition
     amend_isbn_edition(isbn_number)
