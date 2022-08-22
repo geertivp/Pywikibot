@@ -1,10 +1,15 @@
 #!/home/geertivp/pwb/bin/python3
 
 codedoc = """
+Pywikibot client to load ISBN related data into Wikidata
+
 Pywikibot script to get ISBN data from a digital library,
-and create or amend the related Wikidata item for edition (with external ID P212).
+and create or amend the related Wikidata item for edition
+(with the P212=ISBN number as unique external ID).
 
 Use digital libraries to get ISBN data in JSON format, and integrate the results into Wikidata.
+
+Then the resulting item number can be used e.g. to generate Wikipedia references using template Cite_Q.
 
 Parameters:
 
@@ -26,19 +31,20 @@ Parameters:
             worldcat    WorldCat
 
         P2:         ISO 639-1 language code
-                Default LANG; e.g. en, nl, fr, de, es, it, etc.
+                    Default LANG; e.g. en, nl, fr, de, es, it, etc.
 
         P3 P4...:   P/Q pairs to add additional claims (repeated)
-                e.g. P921 Q107643461 (main subject: database management linked to P2163 Fast ID)
+                    e.g. P921 Q107643461 (main subject: database management linked to P2163 Fast ID)
 
     stdin: ISBN numbers (International standard book number)
+
         Free text (e.g. Wikipedia references list, or publication list) is accepted.
         Identification is done via an ISBN regex expression.
 
 Functionality:
 
-    * The ISBN number is used as a primary key (no duplicates allowed)
-        The data update is not performed when no unique match
+    * The ISBN number is used as a primary key (P212 where no duplicates are allowed)
+        The item update is not performed when there is no unique match
     * Statements are added or merged incrementally; existing data is not overwritten.
     * Authors and publishers are searched to get their item number (ambiguous items are skipped)
     * Book title and subtitle are separated with '.', ':', or '-'
@@ -50,6 +56,9 @@ Data quality:
 
     * Use https://query.wikidata.org/querybuilder/ to identify P212 duplicates
         Merge duplicate items before running the script again.
+    * The following properties should only be used for written works
+        P5331:  OCLC work ID (editions should only have P243)
+        P8383:  Goodreads-identificatiecode for work (editions should only have P2969)
 
 Examples:
 
@@ -83,6 +92,8 @@ Other ISBN properties:
 
     P291:   place of publication
     P921:   main subject (inverse lookup from external Fast ID P2163)
+    P629:   work for edition
+    P747:   edition of work
     P1104:  number of pages
 
 Qualifiers:
@@ -97,7 +108,11 @@ External identifiers:
     P675:   Google Books-identificatiecode
     P1036:  Dewey Decimal Classification
     P2163:  Fast ID (inverse lookup via Wikidata Query) -> P921: main subject
-    P5331:  OCLC work ID
+    P2969:  Goodreads-identificatiecode
+    
+    (only for written works)
+    P5331:  OCLC work ID (editions should only have P243)
+    P8383:  Goodreads-identificatiecode for work (editions should only have P2969)
 
 Author:
 
@@ -105,6 +120,7 @@ Author:
 
 Documentation:
 
+    https://en.wikipedia.org/wiki/ISBN
     https://www.geeksforgeeks.org/searching-books-with-python/
     https://www.freecodecamp.org/news/python-json-how-to-convert-a-string-to-json/
     https://pypi.org/project/isbnlib/
@@ -116,7 +132,6 @@ Documentation:
     https://www.wikidata.org/wiki/Template:Bibliographic_properties
     http://classify.oclc.org/classify2/ClassifyDemo
     https://www.wikidata.org/wiki/Wikidata:WikiProject_Source_MetaData
-    WikiCite:   https://www.wikidata.org/wiki/Q21831105
     https://www.wikidata.org/wiki/Help:Sources
     https://www.wikidata.org/wiki/Q22696135
     https://meta.wikimedia.org/wiki/Community_Wishlist_Survey_2021/Wikidata/Bibliographical_references/sources_for_wikidataitems
@@ -164,6 +179,11 @@ Known problems:
     * Need to amend ISBN items that have no author, publisher, or other required data (which additional services to use?)
     * How to add still more digital libraries?
         * Does the KBR has a public ISBN service (Koninklijke Bibliotheek van België)?
+    * Filter for work properties -- need to amend Q47461344 (written work) instance and P629 (edition of) + P747 (has edition) statements
+        https://www.wikidata.org/wiki/Q63413107
+        ['9781282557246', '9786612557248', '9781847196057', '9781847196040']
+        P8383: Goodreads-identificatiecode voor work 13957943 (should have P2969)
+        P5331: OCLC-identificatiecode voor work 793965595 (should have P243)
 
 To do:
 
@@ -196,16 +216,20 @@ Source code:
 Applications:
 
     Generate a book reference
-        Example: {{Cite Q|Q63413107}}
+        Example: {{Cite Q|Q63413107}} (wp.en)
         See also:
             https://meta.wikimedia.org/wiki/WikiCite
-            https://www.wikidata.org/wiki/Q22321052
+            https://www.wikidata.org/wiki/Q21831105 (WikiCite)
+            https://www.wikidata.org/wiki/Q22321052 (Cite_Q)
             https://www.mediawiki.org/wiki/Global_templates
             https://www.wikidata.org/wiki/Wikidata:WikiProject_Source_MetaData
+            https://phabricator.wikimedia.org/tag/wikicite/
+            https://meta.wikimedia.org/wiki/WikiCite/Shared_Citations
 
 Wikidata Query:
 
-    List of editions about musicians - https://w.wiki/5aaz
+    List of editions about musicians:       https://w.wiki/5aaz
+    List of editions having ISBN number:    https://w.wiki/5akq
 
 Related projects:
 
@@ -219,6 +243,7 @@ Related projects:
     https://phabricator.wikimedia.org/T20814
     https://en.wikipedia.org/wiki/User:Citation_bot
     https://meta.wikimedia.org/wiki/Community_Wishlist_Survey_2021/Wikidata/Bibliographical_references/sources_for_wikidataitems
+    https://zenodo.org/record/55004#.YvwO4hTP1D8
 
 Other systems:
 
@@ -242,7 +267,7 @@ debug = True            # Show debugging information
 verbose = True          # Verbose mode
 
 booklib = 'goob'        # Default digital library
-isbnre = re.compile(r'[0-9-]{13,}')         # ISBN number: 13 digits with optional dashes (-)
+isbnre = re.compile(r'[0-9-]{10,17}')       # ISBN number: 10 or 13 digits with optional dashes (-)
 propre = re.compile(r'P[0-9]+')             # Wikidata P-number
 qsuffre = re.compile(r'Q[0-9]+')            # Wikidata Q-number
 
@@ -253,8 +278,9 @@ target = {
 
 # Statement property and instance validation rules
 propreqinst = {
-'P407':{'Q34770', 'Q33742', 'Q1288568'},    # (living, natural) language
-# Add here more validation rules
+'P50':'Q5',                                 # Author requires human
+'P123':{'Q2085381', 'Q1114515', 'Q1320047'},# Publisher requires publisher
+'P407':{'Q34770', 'Q33742', 'Q1288568'},    # Edition language requires at least one of (living, natural) language
 }
 
 mainlang = os.getenv('LANG', 'en')[:2]      # Default description language
@@ -333,11 +359,12 @@ Amend ISBN registration.
 
 Parameters:
 
-    isbn_number:    ISBN number
+    isbn_number:    ISBN number (string; 10 or 13 digits with optional hyphens)
 
 Result:
 
-    Amend Wikidata, depending on the data obtained from the digital library.
+    Amend Wikidata, by registering the ISBN-13 data via P212,
+    depending on the data obtained from the digital library.
     """
     global proptyx
 
@@ -348,6 +375,7 @@ Result:
     # Validate ISBN data
     if verbose:
         print()
+
     try:
         isbn_data = meta(isbn_number, service=booklib)
         logger.info(isbn_data)
@@ -495,13 +523,13 @@ SELECT ?item WHERE {
         author_name = author_name.strip()
         if author_name != '':
             author_cnt += 1
-            author_list = list(get_item_list(author_name, 'Q5'))
+            author_list = list(get_item_list(author_name, propreqinst['P50']))
 
             if len(author_list) == 1:
                 add_author = True
                 if 'P50' in item.claims:
                     for seq in item.claims['P50']:
-                        if seq.getTarget().getID() == author_list[0]:
+                        if seq.getTarget().getID() in author_list:
                             add_author = False
                             break
 
@@ -515,14 +543,14 @@ SELECT ?item WHERE {
                     qualifier.setTarget(str(author_cnt))
                     claim.addQualifier(qualifier, summary=transcmt)
             elif len(author_list) == 0:
-                logger.warning('Unknown author %s' % author_name)
+                logger.warning('Unknown author: %s' % author_name)
             else:
-                logger.warning('Ambiguous author %s' % author_name)
+                logger.warning('Ambiguous author: %s' % author_name)
 
     # Get the publisher
     publisher_name = isbn_data['Publisher'].strip()
     if publisher_name != '':
-        publisher_list = list(get_item_list(publisher_name, 'Q2085381'))
+        publisher_list = list(get_item_list(publisher_name, propreqinst['P123']))
 
         if len(publisher_list) == 1:
             if 'P123' not in item.claims:
@@ -531,9 +559,9 @@ SELECT ?item WHERE {
                 claim.setTarget(pywikibot.ItemPage(repo, publisher_list[0]))
                 item.addClaim(claim, bot=True, summary=transcmt)
         elif len(publisher_list) == 0:
-            logger.warning('Unknown publisher %s' % publisher_name)
+            logger.warning('Unknown publisher: %s' % publisher_name)
         else:
-            logger.warning('Ambiguous publisher %s' % publisher_name)
+            logger.warning('Ambiguous publisher: %s' % publisher_name)
 
     # Get addional data from the digital library
     isbn_cover = cover(isbn_number)
@@ -554,25 +582,56 @@ SELECT ?item WHERE {
     # Handle ISBN classification
     isbn_classify = classify(isbn_number)
     if debug:
-        print(isbn_classify, file=sys.stderr)
+        for i in isbn_classify:
+            print('%s:\t%s' % (i, isbn_classify[i]), file=sys.stderr)
 
     # ./create_isbn_edition.py '978-3-8376-5645-9' - de P407 Q188
     # Q113460204
     # {'owi': '11103651812', 'oclc': '1260160983', 'lcc': 'TK5105.8882', 'ddc': '300', 'fast': {'1175035': 'Wikis (Computer science)', '1795979': 'Wikipedia', '1122877': 'Social sciences'}}
 
-    # OCLC work ID
-    if 'owi' in isbn_classify and 'P5331' not in item.claims:
-        logger.warning('Add OCLC work ID (P5331): %s' % (isbn_classify['owi']))
-        claim = pywikibot.Claim(repo, 'P5331')
-        claim.setTarget(isbn_classify['owi'])
-        item.addClaim(claim, bot=True, summary=transcmt)
-
-    # Set the OCLC id
+    # Set the OCLC ID
     if 'oclc' in isbn_classify and 'P243' not in item.claims:
         logger.warning('Add OCLC ID (P243): %s' % (isbn_classify['oclc']))
         claim = pywikibot.Claim(repo, 'P243')
         claim.setTarget(isbn_classify['oclc'])
         item.addClaim(claim, bot=True, summary=transcmt)
+
+    if 'P243' in item.claims and 'P5331' in item.claims:    # OCLC ID and OCLC work ID should not be both assigned
+        if 'P629' in item.claims:
+            oclcworkid = item.claims['P5331'][0].getTarget()
+            work = item.claims['P629'][0].getTarget()       # Edition should only have one single work
+            logger.warning('Move OCLC Work ID %s to work %s' % (oclcworkid, work.getID()))
+            if 'P5331' not in work.claims:
+                claim = pywikibot.Claim(repo, 'P5331')
+                claim.setTarget(oclcworkid)
+                work.addClaim(claim, bot=True, summary=transcmt)
+            item.removeClaims(item.claims['P5331'][0], bot=True, summary=transcmt)
+        else:
+            logger.error('OCLC Work ID %s conflicts with OCLC ID %s and no work available' % (item.claims['P5331'][0].getTarget(), item.claims['P243'][0].getTarget()))
+
+    # OCLC work ID should not be registered for editions, only for works
+    if 'owi' not in isbn_classify:
+        pass
+    elif 'P629' in item.claims:                     # Get the work related to the edition
+        work = item.claims['P629'][0].getTarget()   # Edition should only have one single work
+        if 'P5331' not in work.claims:              # Assign the OCLC work ID if missing
+            logger.warning('Add OCLC work ID (P5331): %s to work %s' % (isbn_classify['owi'], work.getID()))
+            claim = pywikibot.Claim(repo, 'P5331')
+            claim.setTarget(isbn_classify['owi'])
+            work.addClaim(claim, bot=True, summary=transcmt)
+    elif 'P243' in item.claims:
+        logger.warning('OCLC Work ID %s ignored because of OCLC ID %s' % (isbn_classify['owi'], item.claims['P243'][0].getTarget()))
+    elif 'P5331' not in item.claims:                # Assign the OCLC work ID only if there is no work, and no OCLC ID for edition
+        logger.warning('Add OCLC work ID (P5331): %s to edition' % (isbn_classify['owi']))
+        claim = pywikibot.Claim(repo, 'P5331')
+        claim.setTarget(isbn_classify['owi'])
+        item.addClaim(claim, bot=True, summary=transcmt)
+
+    # Same logic as for OCLC (work) ID
+
+    # Goodreads-identificatiecode (P2969)
+
+    # Goodreads-identificatiecode for work (P8383) should not be registered for editions; should rather use P2969
 
     # Library of Congress Classification (works and editions)
     if 'lcc' in isbn_classify and 'P8360' not in item.claims:
@@ -594,6 +653,8 @@ SELECT ?item WHERE {
     # https://www.oclc.org/research/areas/data-science/fast.html
     # https://www.oclc.org/content/dam/oclc/fast/FAST-quick-start-guide-2022.pdf
 
+    # Authority control identifier from WorldCat's “FAST Linked Data” authority file (external ID P2163)
+    # Corresponding to P921 (Wikidata main subject)
     if 'fast' in isbn_classify:
         for fast_id in isbn_classify['fast']:
 
