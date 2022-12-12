@@ -4,6 +4,8 @@ codedoc = """
 Add images (P18) to Wikidata items
 from Wikimedia Commons SDC depicts (P180) statements.
 
+Kind of creating a reverse SDC P180 statement in Wikidata...
+
 Parameters:
 
     P1: Wikimedia Commons category
@@ -15,18 +17,29 @@ Options:
 
 Examples:
 
-    pwb add_image_from_sdc.py 'Images from Wiki Loves Heritage Belgium in 2022'
+    pwb add_image_from_sdc 'Images from Wiki Loves Heritage Belgium in 2022'
 
 Algorithm:
 
-    List all files in a Wikimedia Commons category
+    List all files in the Wikimedia Commons category
+    Verify if there is any SDC data
     Obtain any SDC P180 statement (depicts)
     Obtain the corresponding Wikidata items
-    Merge the image with P18 in the corresponding Wikidata item
+    Skip the image file if it is aready used on wikidata
+    Merge the image with P18 to the corresponding Wikidata item
+
+Data validation:
+
+    Do not add the picture when it is already assigned to another item
+    Do not add P18 if the item has already another photo
+
+Prerequisites:
+
+    SDC Depicts statements can be generated with the ISA Tool
 
 Known problems:
 
-    Wrong image assigned to item
+    "Wrong image" assigned to the item:
         Caused by a wrong SDC P180 statement
             To solve:
                 * Remove the wrong P180 statement from SDC
@@ -39,8 +52,12 @@ Documentation:
 
     https://doc.wikimedia.org/pywikibot/master/api_ref/pywikibot.html
 
+    https://buildmedia.readthedocs.org/media/pdf/pywikibot/stable/pywikibot.pdf
+
     https://byabbe.se/2020/09/15/writing-structured-data-on-commons-with-python
         Prototype SDC queries
+
+    https://be.wikimedia.org/wiki/ISA_Tool
 
 Author:
 
@@ -74,7 +91,7 @@ pywikibot.info(cat.categoryinfo)
 
 # Get recursive image list from category
 for page in pg.CategorizedPageGenerator(cat, recurse = True):
-    pywikibot.log('\nPicture {}'.format(page))
+    pywikibot.log('\nPicture {}'.format(str(page)))
 
     # Get SDC data
     media_identifier = 'M{}'.format(page.pageid)
@@ -82,8 +99,7 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
     row = request.submit()
 
     try:
-        # Get first Qnumber
-        # Error: 'NoneType' object is not subscriptable => no SDC
+        # Error: 'NoneType' object is not subscriptable => no SDC (TypeError)
         sdc_data = row.get('entities').get(media_identifier)
 
         # Error: 'list' object has no attribute 'get' => no P180
@@ -92,24 +108,34 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
 
         # Here we have at least one P180
         for depict in depict_list:
+            # Get the Qnumber
             qnumber = depict['mainsnak']['datavalue']['value']['id']
 
             item = pywikibot.ItemPage(repo, qnumber)
             item.get(get_redirect=True)
 
-            if 'P18' not in item.claims:
+            # Check if the picture is already used on another Wikidata item
+            image_used = False
+            itempage = pywikibot.FilePage(repo, str(page)[15:-2])
+            for file_ref in pg.FileLinksGenerator(itempage):
+                if str(file_ref)[2:12] == 'wikidata:Q':
+                    pywikibot.log('File is used by {}'.format(file_ref))
+                    image_used = True
+
+            if image_used:
+                break
+            elif 'P18' not in item.claims:
                 # Add image statement (P18) to item
+                claim = pywikibot.Claim(repo, 'P18')
+                claim.setTarget(page)
+                item.addClaim(claim, bot=True, summary=transcmt)
+
                 try:
                     pywikibot.warning('{} ({}): add image (P18) {}'
                                       .format(item.labels[mainlang], qnumber, str(page)))
                 except:
                     pywikibot.warning('({}): add image (P18) {}'.format(qnumber, str(page)))
-
-                claim = pywikibot.Claim(repo, 'P18')
-                claim.setTarget(page)
-                item.addClaim(claim, bot=True, summary=transcmt)
                 break
-            # What if the picture is already used on another Wikidata item?
             else:
                 # Show currently assigned impages (P18)
                 image_used = False
@@ -117,9 +143,10 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
                     val = image.getTarget()
                     if val == page:
                         image_used = True
+
                     try:
                         pywikibot.log('{} ({}): has image (P18) {}'
-                              .format(item.labels[mainlang], qnumber, val))
+                                      .format(item.labels[mainlang], qnumber, val))
                     except:
                         pywikibot.log('({}): has image (P18) {}'.format(qnumber, val))
                 if image_used:
