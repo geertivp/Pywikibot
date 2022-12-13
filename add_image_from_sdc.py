@@ -9,6 +9,9 @@ Kind of creating a reverse SDC P180 statement in Wikidata...
 Linking back Wikidata P18 statements to their corresponding
 Wikimedia Commons SDC P180 statements, starting from a Wikimedia Category.
 
+Basically, it tries to do the same as WDFIST, on the base of a
+Wikimedia Commons category, a functionality that WDFIST does not offer…
+
 Parameters:
 
     P1: Wikimedia Commons category
@@ -22,18 +25,6 @@ Examples:
 
     pwb add_image_from_sdc 'Images from Wiki Loves Heritage Belgium in 2022'
 
-Algorithm:
-
-    List all files in the Wikimedia Commons category (recursively)
-    Do we need to check and filter on file type, and only allow pictures?
-    Skip the image file if it is aready used on wikidata
-    Verify if there is any SDC data linked to the image
-    Obtain any SDC P180 statement (depicts)
-    Obtain the corresponding Wikidata items
-    Merge the image with P18 to the corresponding Wikidata item
-        If the Wikidata item does not have yet a P18 statement
-            (prefereably there is only one single P18 statement per item)
-
 Data validation:
 
     Only allow pictures? What about sound and video?
@@ -42,10 +33,23 @@ Data validation:
 
 Prerequisites:
 
-    Register SDC Depicts statements
+    Register SDC Depicts statements:
         at the moment of image upload
         can be proactively generated with the ISA Tool, as part of a campaign
         manually
+
+Algorithm:
+
+    List all files in the Wikimedia Commons category (recursively)
+    Do we need to check and filter on file type, and only allow pictures?
+    Skip the image file if it is aready used on wikidata
+    Verify if there is any SDC data linked to the image
+    Obtain any SDC P180 statement (depicts)
+    Obtain the corresponding Wikidata items
+        Assemble preferred P180 statements first
+    Merge the image with P18 to the corresponding Wikidata item
+        If the Wikidata item does not have a P18 statement yet
+        (prefereably there is only one single P18 statement per item)
 
 Known problems:
 
@@ -102,69 +106,77 @@ pywikibot.info(cat.categoryinfo)
 
 # Get recursive image list from category
 for page in pg.CategorizedPageGenerator(cat, recurse = True):
-    pywikibot.log('\nPicture {}'.format(str(page)))
+    pywikibot.log('\nPicture {}'.format(page.title()))
 
     # Do we need to check and filter on file type == image?
-    
-    # Get media SDC data
-    media_identifier = 'M' + str(page.pageid)
-    request = site.simple_request(action='wbgetentities', ids=media_identifier)
-    row = request.submit()
 
-    try:
-        # Possible error: 'NoneType' object is not subscriptable => no SDC (TypeError)
-        sdc_data = row.get('entities').get(media_identifier)
+    # Check if the picture is already used on another Wikidata item
+    itempage = pywikibot.FilePage(repo, page.title())
+    image_used = False
 
-        # Possible error: 'list' object has no attribute 'get' => no P180
-        depict_list = sdc_data.get('statements').get('P180')
+    for file_ref in pg.FileLinksGenerator(itempage):
+        # We only take Qnumbers into account (primary namespace)
+        if file_ref.namespace() == 0:
+            image_used = True
+            pywikibot.log('File is used by {}'.format(file_ref.title()))
 
-        # Loop through the list of SDC P180 statements
-        for depict in depict_list:
-            # Get the Qnumber and item
-            qnumber = depict['mainsnak']['datavalue']['value']['id']
-            item = pywikibot.ItemPage(repo, qnumber)
-            item.get(get_redirect=True)
+    if not image_used:
+        # Get media SDC data
+        media_identifier = 'M' + str(page.pageid)
+        request = site.simple_request(action='wbgetentities', ids=media_identifier)
+        row = request.submit()
 
-            # Check if the picture is already used on another Wikidata item
-            image_used = False
-            itempage = pywikibot.FilePage(repo, str(page)[15:-2])
-            #print(itempage)
-            for file_ref in pg.FileLinksGenerator(itempage):
-                # We only take Qnumbers into account (primary namespace)
-                if file_ref.namespace() == 0:
-                    image_used = True
-                    pywikibot.log('File is used by {}'.format(file_ref.title()))
+        try:
+            # Possible error: 'NoneType' object is not subscriptable => no SDC (TypeError)
+            sdc_data = row.get('entities').get(media_identifier)
 
-            if image_used:
-                # We use each image only once
-                break
-            elif 'P18' not in item.claims:
-                # Add image statement (P18) to item
-                claim = pywikibot.Claim(repo, 'P18')
-                claim.setTarget(page)
-                item.addClaim(claim, bot=True, summary=transcmt)
+            # Possible error: 'list' object has no attribute 'get' => no P180
+            depict_list = sdc_data.get('statements').get('P180')
 
-                try:
-                    pywikibot.warning('{} ({}): add image (P18) {}'
-                                      .format(item.labels[mainlang], qnumber, str(page)))
-                except:
-                    pywikibot.warning('({}): add image (P18) {}'.format(qnumber, str(page)))
-                break
-            else:
-                # Show currently assigned impages (P18)
-                image_used = False
-                for image in item.claims['P18']:
-                    val = image.getTarget()
-                    if val == page:
-                        image_used = True
+            # Loop through the list of SDC P180 statements, in order of priority
+            item_list = []
+            for depict in depict_list:
+                # Get the Qnumber and item
+                qnumber = depict['mainsnak']['datavalue']['value']['id']
+                
+                # Execute preferred before normal
+                if depict['rank'] == 'preferred':
+                    item_list.insert(0, qnumber)
+                else:
+                    item_list.append(qnumber)
+
+            for qnumber in item_list:
+                item = pywikibot.ItemPage(repo, qnumber)
+                item.get(get_redirect=True)
+
+                if 'P18' not in item.claims:
+                    # Add image statement (P18) to item
+                    claim = pywikibot.Claim(repo, 'P18')
+                    claim.setTarget(page)
+                    item.addClaim(claim, bot=True, summary=transcmt)
 
                     try:
-                        pywikibot.log('{} ({}): has image (P18) {}'
-                                      .format(item.labels[mainlang], qnumber, val))
+                        pywikibot.warning('{} ({}): add image (P18) {}'
+                                          .format(item.labels[mainlang], qnumber, page.title()))
                     except:
-                        pywikibot.log('({}): has image (P18) {}'.format(qnumber, val))
-                if image_used:
+                        pywikibot.warning('({}): add image (P18) {}'
+                                          .format(qnumber, page.title()))
                     break
-    # Ignore errors (use -debug to make them visiable in logs/pwb-bot.log
-    except Exception as error:
-        pywikibot.debug('Error processing {}, {}'.format(str(page), error))
+                else:
+                    # Show currently assigned impages (P18)
+                    image_used = False
+                    for image in item.claims['P18']:
+                        val = image.getTarget()
+                        if val == page:
+                            image_used = True
+
+                        try:
+                            pywikibot.log('{} ({}): has image (P18) {}'
+                                          .format(item.labels[mainlang], qnumber, val.title()))
+                        except:
+                            pywikibot.log('({}): has image (P18) {}'.format(qnumber, val.title()))
+                    if image_used:
+                        break
+        # Ignore errors (use -debug to make them visiable in logs/pwb-bot.log
+        except Exception as error:
+            pywikibot.debug('Error processing {}, {}'.format(page.title(), error))
