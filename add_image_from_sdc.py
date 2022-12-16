@@ -208,7 +208,7 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
         if image_used:
             continue
 
-        # We have now depicts statements, so we can obtain the media type
+        # We now have valid depicts statements, so we can obtain the media type
         file_type = ['image']
         mime_list = statement_list.get('P1163')
         if mime_list:
@@ -240,16 +240,18 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
             else:
                 item_list.append(qnumber)
 
+        # Loop through potential target Wikidata items
         for qnumber in item_list:
             item = pywikibot.ItemPage(repo, qnumber)
             try:
                 item.get()
             except pywikibot.exceptions.IsRedirectPageError:
+                # This solves a single redirect error
                 item = item.getRedirectTarget()
                 pywikibot.warning('Item {} redirects to {}'.format(qnumber, item.getID()))
                 qnumber = item.getID()
 
-            if 'P31' in item.claims and item.claims['P31'][0].getID() == 'Q4167410':
+            if 'P31' in item.claims and item.claims['P31'][0].getTarget().getID() == 'Q4167410':
                 # Skip Wikimedia disambiguation items
                 # See https://www.wikidata.org/wiki/Property:P18#P2303
                 # Note that we accept P279 subclass, or non-instance items
