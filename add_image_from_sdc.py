@@ -67,16 +67,19 @@ Error messages:
     Media belongs to collection:    Skipping GLAM collections that often depicts art work parts;
                                     without a preferred qualifier there is a risk for wrong registrations
     No depicts for file:            No depict statements found; no item number available
+                                    We should encorage to add depicts statements;
+                                    at least one with preferred status
     No statements for file:         Only labels; no statements, so no depicts
-    Redundant media file:           All media slots already taken, avoid having multiple media files
+    Redundant media file:           All media slots already taken, avoid having multiple media files;
+                                    maybe add more depicts statements
     Skipping page:                  Page doesn't belong to the File namespace
 
 Known problems:
 
-    Updates might require manual validation, to correct any anomalies,
+    Update utems might require manual validation, to correct any anomalies;
     see https://www.wikidata.org/wiki/Special:Contributions
     
-    Redirects are not retroactively updated in SDC
+    Redirects are not retroactively updated in SDC statements
 
     "Wrong media file" assigned to the item:
         Caused by a wrong SDC P180 statement
@@ -98,6 +101,11 @@ Known problems:
 
     Collection media files should always have a preferred statement
 
+    Sleeping for 0.1 seconds, 2022-12-17 11:48:51
+
+    Fatal error:
+    RecursionError: maximum recursion depth exceeded while calling a Python object
+
 Documentation:
 
     https://doc.wikimedia.org/pywikibot/master/api_ref/pywikibot.html
@@ -109,7 +117,7 @@ Documentation:
 
     https://be.wikimedia.org/wiki/ISA_Tool
 
-To do:
+Related projects:
 
     Add SDC P180 depicts statement for Wikdata media file statements (reverse logic)
         Should be even more easy... 1:1 relationship...
@@ -126,9 +134,22 @@ import pywikibot		# API interface to Wikidata
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
 from pywikibot import pagegenerators as pg
 
+MAINNAMESPACE = 0
+FILENAMESPACE = 6
+
+VIDEOPROP = 'P10'
+IMAGEPROP = 'P18'
+INSTANCEPROP = 'P31'
+AUDIOPROP = 'P51'
+DEPICTSPROP = 'P180'
+COLLECTIONPROP = 'P195'
+MIMEPROP = 'P1163'
+
+DISAMBUGINSTANCE = 'Q4167410'
+
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2022-12-15 (gvp)'	            # Program ID and version
+pgmid = '2022-12-17 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 transcmt = '#pwb Add image from SDC'
@@ -136,10 +157,10 @@ transcmt = '#pwb Add image from SDC'
 # Mapping of media types to property
 # Should be amended for new types
 media_props = {
-    #'application': '',
-    'audio': 'P51',
-    'image': 'P18',
-    'video': 'P10',
+    #'application': '',     # Not implemented
+    'audio': AUDIOPROP,
+    'image': IMAGEPROP,
+    'video': VIDEOPROP,
 }
 
 mainlang = os.getenv('LANG', 'en').split('_')[0]      # Default description language
@@ -147,10 +168,9 @@ mainlang = os.getenv('LANG', 'en').split('_')[0]      # Default description lang
 # Get parameters
 pgmnm = sys.argv.pop(0)
 
+category = sys.argv.pop(0)
 site = pywikibot.Site('commons')
 repo = site.data_repository()
-
-category = sys.argv.pop(0)
 cat = pywikibot.Category(site, category)
 
 pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
@@ -159,40 +179,42 @@ pywikibot.info(cat.categoryinfo)
 # Get recursive image list from category
 for page in pg.CategorizedPageGenerator(cat, recurse = True):
     # We only accept the File: namespace
-    if page.namespace() != 6:
-        pywikibot.log('Skipping {}'.format(page.title()))
+    media_identifier = 'M' + str(page.pageid)
+    if page.namespace() != FILENAMESPACE:
+        pywikibot.log('Skipping {} {}'.format(media_identifier, page.title()))
         continue
 
     try:
         # Get media SDC data
-        media_identifier = 'M' + str(page.pageid)
         request = site.simple_request(action='wbgetentities', ids=media_identifier)
         row = request.submit()
 
-        ## ?? Catch error
+        # Catch errors
         sdc_data = row.get('entities').get(media_identifier)
         ## {'pageid': 125667911, 'ns': 6, 'title': 'File:Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot.pdf', 'lastrevid': 707697714, 'modified': '2022-11-18T20:06:23Z', 'type': 'mediainfo', 'id': 'M125667911', 'labels': {'nl': {'language': 'nl', 'value': 'Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot'}, 'en': {'language': 'en', 'value': 'Wikidata ISBN book description with ISBNlib and Pywikibot'}, 'fr': {'language': 'fr', 'value': 'Description du livre Wikidata ISBN avec ISBNlib et Pywikibot'}, 'de': {'language': 'de', 'value': 'Wikidata ISBN Buchbeschreibung mit ISBNlib und Pywikibot'}, 'es': {'language': 'es', 'value': 'Descripción del libro de Wikidata ISBN con ISBNlib y Pywikibot'}}, 'descriptions': {}, 'statements': []}
 
-        ## ?? Why is descriptions empty? How could it be registered? The GUI only allows to register labels?
-
-        ## ?? Possible error: 'list' object has no attribute 'get' => no SDC (TypeError)
         statement_list = sdc_data.get('statements')
         if not statement_list:
-            pywikibot.log('No statements for {}'.format(page.title()))
+            # Old images do not have statements
+            pywikibot.log('No statements for {} {}'
+                          .format(media_identifier, page.title()))
             continue
 
-        depict_list = statement_list.get('P180')
+        depict_list = statement_list.get(DEPICTSPROP)
         if not depict_list:
-            pywikibot.log('No depicts for {}'.format(page.title()))
+            # This program runs on the basis of depects statements
+            pywikibot.log('No depicts for {} {}'.format(media_identifier, page.title()))
             continue
 
-        # Depicts statements for GLAM collections
-        # generally describe painting objects, so skip them
-        # Skip collections, if the collection is documented
-        collection_list = statement_list.get('P195')
+        collection_list = statement_list.get(COLLECTIONPROP)
         if collection_list:
+            # Depicts statements for GLAM collections
+            # generally describe part painting objects; so skip them
+            # Skip collections, if the collection is documented
+            # They should rather have a preferred statement describing the artwork
             qnumber = collection_list[0]['mainsnak']['datavalue']['value']['id']
-            pywikibot.log('Media {} belongs to collection {}'.format(page.title(), qnumber))
+            pywikibot.log('Media {} {} belongs to collection {}'
+                          .format(media_identifier, page.title(), qnumber))
             continue
 
         # Check if the picture is already used on another Wikidata item
@@ -201,27 +223,18 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
 
         for file_ref in pg.FileLinksGenerator(itempage):
             # We only take Qnumbers into account (primary namespace)
-            if file_ref.namespace() == 0:
+            if file_ref.namespace() == MAINNAMESPACE:
                 image_used = True
-                pywikibot.log('{} is used by {}'.format(page.title(), file_ref.title()))
-
+                pywikibot.log('{} {} is used by {}'
+                              .format(media_identifier, page.title(), file_ref.title()))
         if image_used:
+            # Image is already used, so skip
             continue
 
-        # We now have valid depicts statements, so we can obtain the media type
-        file_type = ['image']
-        mime_list = statement_list.get('P1163')
-        if mime_list:
-            mime_type = mime_list[0]['mainsnak']['datavalue']['value']
-            file_type = mime_type.split('/')
-
-        # Could possibly fail with non-recognized media types
-        media_type = media_props[file_type[0]]
-
-        # Loop through the list of SDC P180 statements,
-        # in order of priority (preferred first)
         item_list = []
         for depict in depict_list:
+            # Loop through the list of SDC P180 statements,
+            # in order of priority (ignore normal when at least one preferred)
             """
 {'mainsnak':
 	{'snaktype': 'value', 'property': 'P180', 'hash': 'de0ee4f082bfc89cdb25db93cc21755315974690',
@@ -240,18 +253,41 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
             else:
                 item_list.append(qnumber)
 
-        # Loop through potential target Wikidata items
+        description_list = sdc_data.get('descriptions')
+        if description_list != {}:
+            ## ?? Why is descriptions empty? How could it be registered?
+            # The GUI only allows to register labels?
+            pywikibot.log(description_list)
+
+        file_type = ['image']
+        mime_list = statement_list.get(MIMEPROP)
+        if mime_list:
+            # We now have valid depicts statements, so we can obtain the media type
+            # Default: image
+            mime_type = mime_list[0]['mainsnak']['datavalue']['value']
+            file_type = mime_type.split('/')
+
+        # Could possibly fail with non-recognized media types
+        # In that case the new media type should be added
+        media_type = media_props[file_type[0]]
+
         for qnumber in item_list:
+            # Loop through the target Wikidata items
             item = pywikibot.ItemPage(repo, qnumber)
+
             try:
                 item.get()
             except pywikibot.exceptions.IsRedirectPageError:
-                # This solves a single redirect error
+                # Resolve a single redirect error
                 item = item.getRedirectTarget()
                 pywikibot.warning('Item {} redirects to {}'.format(qnumber, item.getID()))
                 qnumber = item.getID()
 
-            if 'P31' in item.claims and item.claims['P31'][0].getTarget().getID() == 'Q4167410':
+            if item.namespace() != MAINNAMESPACE:
+                # Only set media files to items in the main namespace
+                continue
+            elif (INSTANCEPROP in item.claims
+                and item.claims[INSTANCEPROP][0].getTarget().getID() == DISAMBUGINSTANCE):
                 # Skip Wikimedia disambiguation items
                 # See https://www.wikidata.org/wiki/Property:P18#P2303
                 # Note that we accept P279 subclass, or non-instance items
@@ -259,12 +295,12 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
             elif media_type not in item.claims:
                 # Only add exclusive media file
                 try:
-                    pywikibot.warning('{} ({}): add media ({}) {}'
+                    pywikibot.warning('{} ({}): add media ({}) {} {}'
                                       .format(item.labels[mainlang],
-                                              qnumber, media_type, page.title()))
+                                              qnumber, media_type, media_identifier, page.title()))
                 except:
-                    pywikibot.warning('({}): add media ({}) {}'
-                                      .format(qnumber, media_type, page.title()))
+                    pywikibot.warning('({}): add media ({}) {} {}'
+                                      .format(qnumber, media_type, media_identifier, page.title()))
 
                 # Add media statement to item
                 claim = pywikibot.Claim(repo, media_type)
@@ -273,8 +309,9 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
                 break
         else:
             # All media item slots were already taken
-            pywikibot.log('Redundant media {}'.format(page.title()))
+            # Maybe add more depicts statements?
+            pywikibot.log('Redundant media {} {}'.format(media_identifier, page.title()))
 
     # Log errors
     except Exception as error:
-        pywikibot.log('Error processing {}, {}'.format(page.title(), error))
+        pywikibot.log('Error processing {} {}, {}'.format(media_identifier, page.title(), error))
