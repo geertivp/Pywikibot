@@ -56,6 +56,7 @@ Algorithm:
     Determine the media type
     Obtain the corresponding Wikidata items
         Preferred P180 statement overrule normal items
+    Handle (single) redirected items
     Merge the media file to the corresponding Wikidata item
         If the Wikidata item does not have a media statement yet
         (prefereably there is only one single media file per item/type)
@@ -76,7 +77,7 @@ Error messages:
 
 Known problems:
 
-    Update utems might require manual validation, to correct any anomalies;
+    Updated items might require manual validation, to correct any anomalies;
     see https://www.wikidata.org/wiki/Special:Contributions
     
     Redirects are not retroactively updated in SDC statements
@@ -105,6 +106,8 @@ Known problems:
 
     Fatal error:
     RecursionError: maximum recursion depth exceeded while calling a Python object
+
+    Multiple timeout problems... could we set a hard timeout?
 
 Documentation:
 
@@ -140,16 +143,19 @@ FILENAMESPACE = 6
 VIDEOPROP = 'P10'
 IMAGEPROP = 'P18'
 INSTANCEPROP = 'P31'
+AUTHORPROP = 'P50'
 AUDIOPROP = 'P51'
+PUBLISHERPROP = 'P123'
 DEPICTSPROP = 'P180'
 COLLECTIONPROP = 'P195'
+SUBCLASSPROP = 'P279'
 MIMEPROP = 'P1163'
 
 DISAMBUGINSTANCE = 'Q4167410'
 
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2022-12-17 (gvp)'	            # Program ID and version
+pgmid = '2022-12-20 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 transcmt = '#pwb Add image from SDC'
@@ -284,16 +290,24 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
                 qnumber = item.getID()
 
             if item.namespace() != MAINNAMESPACE:
-                # Only set media files to items in the main namespace
+                # Only register media files to items in the main namespace
                 continue
-            elif (INSTANCEPROP in item.claims
-                and item.claims[INSTANCEPROP][0].getTarget().getID() == DISAMBUGINSTANCE):
+            elif (INSTANCEPROP not in item.claims
+                    and SUBCLASSPROP not in item.claims):
+                # Skip when neither instance, nor subclass
+                continue
+            elif ((INSTANCEPROP in item.claims
+                        and item.claims[INSTANCEPROP][0].getTarget().getID() == DISAMBUGINSTANCE)
+                    or (AUTHORPROP in item.claims)
+                    or (PUBLISHERPROP in item.claims)):
                 # Skip Wikimedia disambiguation items
                 # See https://www.wikidata.org/wiki/Property:P18#P2303
-                # Note that we accept P279 subclass, or non-instance items
+                # Note that we accept P279 subclass
+                # In general we skip publications
                 continue
+                # Could also filter on minimum image resolution
             elif media_type not in item.claims:
-                # Only add exclusive media file
+                # Only add exclusive media file (preferably one single image per Wikidata item)
                 try:
                     pywikibot.warning('{} ({}): add media ({}) {} {}'
                                       .format(item.labels[mainlang],
@@ -309,9 +323,10 @@ for page in pg.CategorizedPageGenerator(cat, recurse = True):
                 break
         else:
             # All media item slots were already taken
-            # Maybe add more depicts statements?
+            # Maybe add more appropriate depicts statements?
             pywikibot.log('Redundant media {} {}'.format(media_identifier, page.title()))
 
     # Log errors
     except Exception as error:
         pywikibot.log('Error processing {} {}, {}'.format(media_identifier, page.title(), error))
+        #raise  # Uncomment to debug
