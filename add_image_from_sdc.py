@@ -6,7 +6,7 @@ from Wikimedia Commons SDC depicts (P180) statements,
 based on a Wikimedia Commons category (parameter P1),
 or a list of media files (stdin).
 
-Kind of creating a reverse SDC P180 statement in Wikidata...
+Kind of creating reverse SDC P180 statements in Wikidata...
 
 Starting from a Wikimedia Category,
 or a list of media files,
@@ -20,7 +20,7 @@ a functionality that WDFIST does not offer…
 
 In prnciple the script runs completely automated, without any human intervention,
 but it is strongly advised to verify the resulting changes in Wikidata.
-Depending on the quality of the SDC P180 statements manual corrections might be required.
+Depending on the quality of the SDC P180 statements, manual corrections might be required.
 Wikimedia Commons is not updated.
 
 Parameters:
@@ -45,26 +45,28 @@ Prerequisites:
 
     The use of SDC P180 (depict) is a prerequisite and should be encouraged.
     Register the SDC depicts statements in Wikimedia Commons:
-        at the moment of media file upload
-        can be proactively generated with the ISA Tool, as part of a campaign
-        might be done with some Toolforge tool (unexisting yet?)
-        manually adding depicts statements
+        immediately after the media upload,
+        can be generated with the ISA Tool, as part of a campaign,
+        might be done with some Toolforge tool (unexisting yet?),
+        via AC/DC,
+        or manually adding depicts statements via the GUI
     If there are no SDC P180 statements, no updates in Wikidata are performed.
 
 Data validation:
 
     Media files having depict statements are added to Wikidata items in the main namespace.
     The script accepts audio, image, and video.
+        For images, some P180 instances can determine subtypes
     Wikidata disambiguation and category items are skipped.
-    No media file is added if the item holds already another media file.
     No media file is added when it is already assigned to another Wikidata item.
+    No media file is added if the item holds already another media file.
     Collection media files should always have a preferred statement;
         avoid Wikidata image statement polution;
         requires a specific Wikidata item for the collection object (which is a good idea!).
 
 Functionality:
 
-    This script follows the Wikidata guidelines (e.g. one single image statement).
+    This script follows the general Wikidata guidelines (e.g. one single image statement).
 
     Handle special image properties; e.g.:
         P154    logo
@@ -99,7 +101,9 @@ Use cases:
 
 To do:
 
+    Proactive constraint checking
     Properly handle the image quality (resolution)
+        How to get wikimedia commons image size with pywikibot?
 
 Algorithm:
 
@@ -111,7 +115,7 @@ Algorithm:
         Skip collection items not having a preferred qualifier
         Skip artist work for artists
         Skip the media file if it is already used on wikidata
-    Determine the media type (multiple rules; default image)
+    Determine the media type (multiple rules; default: image)
     Obtain the corresponding Wikidata items
         Preferred P180 statement overrule normal items
         Handle (single) redirected items
@@ -121,6 +125,9 @@ Algorithm:
 
 Known problems:
 
+    Very few media files have a depicts statement (see prerequisites)
+        Idea: missing depicts query
+
     Updated items might require manual validation, to correct any anomalies;
     see https://www.wikidata.org/wiki/Special:Contributions
 
@@ -129,7 +136,7 @@ Known problems:
     Wikidata redirects are recognized, but are not retroactively updated in the SDC statements.
 
     Deleted Wikidata item page, while Wikimedia Commons SDC P180 staement is still there;
-    this is not retroactively resolved.
+    this problem is not retroactively resolved.
 
     "Wrong media file" assigned to the item:
         Caused by a wrong SDC P180 statement
@@ -146,9 +153,6 @@ Known problems:
     File contains missing revisions:
         Some revisions were deleted (by a moderator);
         you can ignore this warning.
-
-    Very few media files have a depicts statement (see prerequisites)
-        Idea: missing depicts query
 
     Sleeping for 0.2 seconds, 2022-12-17 11:48:51
 
@@ -191,18 +195,23 @@ from pywikibot import pagegenerators as pg
 
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2022-12-26 (gvp)'	            # Program ID and version
+pgmid = '2022-12-29 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 transcmt = '#pwb Add image from SDC'
 
 # Constants
+BOTFLAG = True
+
+# Namespaces
 MAINNAMESPACE = 0
 FILENAMESPACE = 6
 
+# Properties
 VIDEOPROP = 'P10'
 IMAGEPROP = 'P18'
 INSTANCEPROP = 'P31'
+FLAGPROP = 'P41'
 AUTHORPROP = 'P50'
 AUDIOPROP = 'P51'
 COATOFARMSPROP = 'P94'
@@ -212,63 +221,134 @@ PUBLISHERPROP = 'P123'
 LOGOPROP = 'P154'
 DEPICTSPROP = 'P180'
 COLLECTIONPROP = 'P195'
+ISBNPROP = 'P212'
 SUBCLASSPROP = 'P279'
+DOIPROP = 'P356'
 RESTRICTPROP = 'P518'
+WORKPROP = 'P629'
+EDITIONPROP = 'P747'
+VOYAGEBANPROP = 'P948'
+ISBN10PROP = 'P957'
+VOICERECPROP = 'P990'
 PDFPROP = 'P996'
 MIMEPROP = 'P1163'
 GRAVEPROP = 'P1442'
 PLACENAMEPROP = 'P1766'
 PLAQUEPROP = 'P1801'
 AUTHORNAMEPROP = 'P2093'
+ICONPROP = 'P2910'
 NIGHTVIEWPROP = 'P3451'
 WINTERVIEWPROP = 'P5252'
+CHIEFEDITORPROP = 'P5769'
 INTERIORPROP = 'P5775'
+DIGITALREPROPROP = 'P6243'
+VERSOPROP = 'P7417'
+RECTOPROP = 'P7418'
 FRAMEWORKPROP = 'P7420'
 VIEWPROP = 'P8517'
+FAVICONPROP = 'P8972'
 AERIALVIEWPROP = 'P8592'
 COLORWORKPROP = 'P10093'
 
+# Instances
 HUMANINSTANCE = 'Q5'
+YEARINSTANCE = 'Q3186692'
 CATEGORYINSTANCE = 'Q4167836'
 DISAMBUGINSTANCE = 'Q4167410'
+RULESINSTANCE = 'Q4656150'
+TEMPLATEINSTANCE = 'Q11266439'
+LISTPAGEINSTANCE = 'Q13406463'
+WMPROJECTINSTANCE = 'Q14204246'
+NAMESPACEINSTANCE = 'Q35252665'
+VOICERECINSTANCE = 'Q53702817'
+HELPPAGEINSTANCE = 'Q56005592'
 
-# Base media types
-base_work = {AUDIOPROP, IMAGEPROP, VIDEOPROP}
+# Media type groups
+base_media = {AUDIOPROP, IMAGEPROP, VIDEOPROP}
+human_class = HUMANINSTANCE
+object_class = {INSTANCEPROP, SUBCLASSPROP}
+
+published_work = {
+    AUTHORPROP,
+    AUTHORNAMEPROP,
+    CHIEFEDITORPROP,
+    DOIPROP,
+    EDITIONPROP,
+    EDITORPROP,
+    ISBNPROP,
+    ISBN10PROP,
+    PUBLISHERPROP,
+    WORKPROP,
+}
+
+small_image = {
+    FAVICONPROP,
+    ICONPROP,
+    LOGOPROP,
+    SIGNATUREPROP,
+    VOYAGEBANPROP,
+}
 
 # Unwanted instances
-skipped_instances = {CATEGORYINSTANCE, DISAMBUGINSTANCE}
+skipped_instances = {
+    CATEGORYINSTANCE,
+    DISAMBUGINSTANCE,
+    HELPPAGEINSTANCE,
+    LISTPAGEINSTANCE,
+    NAMESPACEINSTANCE,
+    RULESINSTANCE,
+    TEMPLATEINSTANCE,
+    YEARINSTANCE,
+    WMPROJECTINSTANCE,
+}
 
 # Map image instance to media types
 image_types = {
+    'Q2130': 'favicon',
     'Q14659': 'coatofarms',
+    'Q14660': 'flag',
+    'Q33582': 'face',           # Mugshot
+    'Q138754': 'icon',
     'Q173387': 'grave',
     'Q188675': 'signature',
     'Q266488': 'placename',
     'Q721747': 'plaque',
-    'Q2032225': 'placename',
-    'Q3362196': 'placename',
-    'Q55498668': 'placename',
-    'Q2075301': 'view',
-    'Q28333482': 'nightview',
     'Q860792': 'framework',
+    'Q860861': 'sculpture',
+    'Q904029': 'face',          # ID card
+    'Q928357': 'sculpture',
     'Q1153655': 'aerialview',
     'Q1886349': 'logo',
+    'Q2032225': 'placename',
+    'Q2075301': 'view',
+    'Q3362196': 'placename',
+    'Q9305022': 'recto',
+    'Q9368452': 'verso',
+    'Q22920576': 'wvbanner'
+    'Q28333482': 'nightview',
     'Q31807746': 'interior',
     'Q54819662': 'winterview',
+    'Q55498668': 'placename',
     'Q109592922': 'colorwork',
+    VOICERECINSTANCE: 'voicerec',
     # others...
 }
 
 # Mapping of SDC media MIME types to Wikidata property
 # Should be extended for new MIME types -> will generate a KeyError
 media_props = {
-    #'application': '',     # Not implemented; generates error
+    #'application': ?,          # Requires subtype lookup, e.g. 'pdf'
     'aerialview': AERIALVIEWPROP,
+    'wvbanner': VOYAGEBANPROP,
     'coatofarms': COATOFARMSPROP,
     'framework': FRAMEWORKPROP,
     'audio': AUDIOPROP,
     'colorwork': COLORWORKPROP,
+    'flag': FLAGPROP,
+    'face': IMAGEPROP,          # Would need special property
+    'favicon': FAVICONPROP,
     'grave': GRAVEPROP,
+    'icon': ICONPROP,
     'image': IMAGEPROP,
     'interior': INTERIORPROP,
     'logo': LOGOPROP,
@@ -279,9 +359,13 @@ media_props = {
     'pdf': PDFPROP,
     'placename': PLACENAMEPROP,
     'plaque': PLAQUEPROP,
+    'recto': RECTOPROP,
+    'sculpture': DIGITALREPROPROP,
     'signature': SIGNATUREPROP,
+    'verso': VERSOPROP,
     'video': VIDEOPROP,
     'view': VIEWPROP,
+    'voicerec': VOICERECPROP,
     'winterview': WINTERVIEWPROP,
     # others...
 }
@@ -309,13 +393,35 @@ def is_in_list(statement_list, checklist) -> bool:
     return isinlist
 
 
+def prop_is_in_list(statement_list, proplist) -> bool:
+    """
+    Verify if a property is used for a statement
+
+    Parameters:
+
+        statement_list: Statement list
+        proplist:       List of properties (string)
+
+    Returns:
+
+    Boolean (True when match)
+    """
+    for prop in proplist:
+        if prop in statement_list:
+            isinlist = True
+            break
+    else:
+        isinlist = False
+    return isinlist
+
+
 mainlang = os.getenv('LANG', 'en').split('_')[0]      # Default description language
 
 # Get parameters
 pgmnm = sys.argv.pop(0)
 pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
 
-# Login
+# Connect to databases
 site = pywikibot.Site('commons')
 repo = site.data_repository()
 
@@ -340,10 +446,10 @@ else:
             except Exception as error:
                 pywikibot.log(error)
 
-# Loop through the media file list
+# Loop through the list of media files
 for page in page_list:
     try:
-        # We only accept the File: namespace
+        # We only accept the File namespace
         media_identifier = 'M' + str(page.pageid)
         if page.namespace() != FILENAMESPACE:
             pywikibot.log('Skipping {} {}'.format(media_identifier, page.title()))
@@ -356,6 +462,8 @@ for page in page_list:
         # Catch errors
         sdc_data = row.get('entities').get(media_identifier)
         ## {'pageid': 125667911, 'ns': 6, 'title': 'File:Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot.pdf', 'lastrevid': 707697714, 'modified': '2022-11-18T20:06:23Z', 'type': 'mediainfo', 'id': 'M125667911', 'labels': {'nl': {'language': 'nl', 'value': 'Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot'}, 'en': {'language': 'en', 'value': 'Wikidata ISBN book description with ISBNlib and Pywikibot'}, 'fr': {'language': 'fr', 'value': 'Description du livre Wikidata ISBN avec ISBNlib et Pywikibot'}, 'de': {'language': 'de', 'value': 'Wikidata ISBN Buchbeschreibung mit ISBNlib und Pywikibot'}, 'es': {'language': 'es', 'value': 'Descripción del libro de Wikidata ISBN con ISBNlib y Pywikibot'}}, 'descriptions': {}, 'statements': []}
+
+        # Missing: how to get the file size
 
         statement_list = sdc_data.get('statements')
         if not statement_list:
@@ -370,12 +478,13 @@ for page in page_list:
             pywikibot.log('No depicts for {} {}'.format(media_identifier, page.title()))
             continue
 
-        # Default file type; can be overruled by depict statement
+        # Get default file type; can be overruled by depict statement
         file_type = ['image']
         mime_list = statement_list.get(MIMEPROP)
         if mime_list:
             # We now have valid depicts statements, so we can obtain the media type
             # Default: image
+            # Normally we only have one single MIME type
             mime_type = mime_list[0]['mainsnak']['datavalue']['value']
             file_type = mime_type.split('/')
 
@@ -383,7 +492,7 @@ for page in page_list:
         preferred = False
         for depict in depict_list:
             # Loop through the list of SDC P180 statements,
-            # in order of priority
+            # by order of priority
             """
 {'mainsnak':
 	{'snaktype': 'value', 'property': 'P180', 'hash': 'de0ee4f082bfc89cdb25db93cc21755315974690',
@@ -395,18 +504,17 @@ for page in page_list:
             # Get the Q-number for item
             qnumber = depict['mainsnak']['datavalue']['value']['id']
             if qnumber in image_types:
-                # Special file type
+                # Special image type
                 file_type = [image_types[qnumber]]
-
-            if preferred:
-                # Keep first preferred item
+            elif preferred:
+                # Keep the first preferred item
                 pass
             elif depict['rank'] == 'preferred':
                 # Overrule normal items when at least one preferred
                 preferred = True
                 item_list = [qnumber]
-            elif not ('qualifiers' in depict and RESTRICTPROP in depict['qualifiers']):
-                # Skip "aplies to" qualifiers
+            elif not ('qualifiers' in depict and is_in_list(depict['qualifiers'], RESTRICTPROP)):
+                # Skip "applies to" qualifiers
                 # Could also filter on minimum image resolution
                 # Add a normal ranked item to the list
                 item_list.append(qnumber)
@@ -438,18 +546,24 @@ for page in page_list:
             # Image is already used, so skip
             continue
 
-        # Determine media type
         if file_type[0] == 'application':
+            # Determine media type
             media_type = media_props[file_type[1]]
         else:
             # Could possibly fail with KeyError with non-recognized media types
             # In that case the new media type should be added to the list
             media_type = media_props[file_type[0]]
 
+        # Filter low resolution sizes (caveat: logo)
+
         description_list = sdc_data.get('descriptions')
         if description_list != {}:
             ## ?? Why is descriptions always empty? How could it be registered?
             # The GUI only allows to register labels?
+            """
+{'en': {'language': 'en', 'value': 'Belgian volleyball player'}, 'it': {'language': 'it', 'value': 'pallavolista belga'}}
+Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
+            """
             pywikibot.log(description_list)
 
         for qnumber in item_list:
@@ -464,11 +578,12 @@ for page in page_list:
                 pywikibot.warning('Item {} redirects to {}'.format(qnumber, item.getID()))
                 qnumber = item.getID()
 
+                # Should update SDC statement for redirect
+
             if media_type in item.claims:
-                # Only add exclusive media file (preferably one single image per Wikidata item)
+                # Preferably one single image per Wikidata item
                 continue
-            elif not (INSTANCEPROP in item.claims
-                    or SUBCLASSPROP in item.claims):
+            elif not prop_is_in_list(item.claims, object_class):
                 # Skip when neither instance, nor subclass
                 continue
             elif (INSTANCEPROP in item.claims
@@ -479,15 +594,14 @@ for page in page_list:
                 continue
             elif (INSTANCEPROP in item.claims
                     # Human and artwork images are incompatible (distinction between artist and oevre)
-                    and is_in_list(item.claims[INSTANCEPROP], HUMANINSTANCE)
-                    and media_type not in base_work):
+                    and is_in_list(item.claims[INSTANCEPROP], human_class)
+                    and media_type not in base_media):
                 continue
-            elif (AUTHORPROP in item.claims
-                    or AUTHORNAMEPROP in item.claims
-                    or EDITORPROP in item.claims
-                    or PUBLISHERPROP in item.claims):
+            elif prop_is_in_list(item.claims, published_work):
                 # We skip publications
                 continue
+                # Proactive constraint check
+                # Skip low quality images
                 # Note that we unconditionally accept P279 subclass
             elif item.namespace() == MAINNAMESPACE:
                 # Only register media files to items in the main namespace
@@ -502,7 +616,7 @@ for page in page_list:
                 # Add media statement to item
                 claim = pywikibot.Claim(repo, media_type)
                 claim.setTarget(page)
-                item.addClaim(claim, bot=True, summary=transcmt)
+                item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
                 break
         else:
             # All media item slots were already taken
