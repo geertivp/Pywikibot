@@ -41,6 +41,13 @@ Examples:
 
     pwb -v add_image_from_sdc 'Images from Wiki Loves Heritage Belgium in 2022'
 
+    https://www.wikidata.org/wiki/Q98141338
+    https://www.wikidata.org/w/index.php?title=Q140&diff=1799300865&oldid=1796952109
+
+    Missing metadata:
+
+    https://commons.wikimedia.org/wiki/Category:Unidentified_subjects
+
 Prerequisites:
 
     The use of SDC P180 (depict) is a prerequisite and should be encouraged.
@@ -51,6 +58,8 @@ Prerequisites:
         via AC/DC,
         or manually adding depicts statements via the GUI
     If there are no SDC P180 statements, no updates in Wikidata are performed.
+    Please add a MIMI type (default image/jpeg)
+    Please add a preferred qualifier (especially for collections)
 
 Data validation:
 
@@ -122,6 +131,10 @@ Algorithm:
     Merge the media file to the corresponding Wikidata item
         If the Wikidata item does not have a media statement yet
         (prefereably there is only one single media file per item/type)
+
+Media file metadata:
+
+    entity media info <- labels/decriptions/statements <- depicts <- item number <- properties <- qualifiers
 
 Known problems:
 
@@ -195,7 +208,7 @@ from pywikibot import pagegenerators as pg
 
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2022-12-29 (gvp)'	            # Program ID and version
+pgmid = '2023-01-02 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 transcmt = '#pwb Add image from SDC'
@@ -224,11 +237,13 @@ COLLECTIONPROP = 'P195'
 ISBNPROP = 'P212'
 SUBCLASSPROP = 'P279'
 DOIPROP = 'P356'
+PRONUNCIATIONPROP = 'P443'
 RESTRICTPROP = 'P518'
 WORKPROP = 'P629'
 EDITIONPROP = 'P747'
 VOYAGEBANPROP = 'P948'
 ISBN10PROP = 'P957'
+SPOKENTEXTPROP = 'P989'
 VOICERECPROP = 'P990'
 PDFPROP = 'P996'
 MIMEPROP = 'P1163'
@@ -260,7 +275,6 @@ TEMPLATEINSTANCE = 'Q11266439'
 LISTPAGEINSTANCE = 'Q13406463'
 WMPROJECTINSTANCE = 'Q14204246'
 NAMESPACEINSTANCE = 'Q35252665'
-VOICERECINSTANCE = 'Q53702817'
 HELPPAGEINSTANCE = 'Q56005592'
 
 # Media type groups
@@ -281,6 +295,7 @@ published_work = {
     WORKPROP,
 }
 
+# Identify small images
 small_image = {
     FAVICONPROP,
     ICONPROP,
@@ -305,32 +320,41 @@ skipped_instances = {
 # Map image instance to media types
 image_types = {
     'Q2130': 'favicon',
+    'Q3302947': 'audio',        # audio recording
+    'Q4650799': 'audio',        # adio
     'Q14659': 'coatofarms',
     'Q14660': 'flag',
     'Q33582': 'face',           # Mugshot
     'Q138754': 'icon',
     'Q173387': 'grave',
+    'Q178659': 'illustration',
+    'Q184377': 'pronunciation',
     'Q188675': 'signature',
-    'Q266488': 'placename',
+    'Q266488': 'placename',     # town name
+    'Q653542': 'spokentext',    # audio description; diffrent from Q110374796 (spoken text)
     'Q721747': 'plaque',
     'Q860792': 'framework',
-    'Q860861': 'sculpture',
+    'Q860861': 'sculpture',     # sculpture
     'Q904029': 'face',          # ID card
-    'Q928357': 'sculpture',
+    'Q928357': 'sculpture',     # bronze sculpture
     'Q1153655': 'aerialview',
     'Q1886349': 'logo',
-    'Q2032225': 'placename',
+    'Q1969455': 'placename',    # street name
+    'Q2032225': 'placename',    # German place name
     'Q2075301': 'view',
-    'Q3362196': 'placename',
+    'Q3362196': 'placename',    # French place name
     'Q9305022': 'recto',
     'Q9368452': 'verso',
-    'Q22920576': 'wvbanner'
+    'Q11060274': 'prent',
+    'Q17172850': 'voicerec',    # voice
+    'Q22920576': 'wvbanner',
     'Q28333482': 'nightview',
     'Q31807746': 'interior',
+    'Q53702817': 'voicerec',    # voice recording
     'Q54819662': 'winterview',
-    'Q55498668': 'placename',
+    'Q55498668': 'placename',   # place name
+    'Q98069877': 'video',
     'Q109592922': 'colorwork',
-    VOICERECINSTANCE: 'voicerec',
     # others...
 }
 
@@ -339,34 +363,38 @@ image_types = {
 media_props = {
     #'application': ?,          # Requires subtype lookup, e.g. 'pdf'
     'aerialview': AERIALVIEWPROP,
-    'wvbanner': VOYAGEBANPROP,
-    'coatofarms': COATOFARMSPROP,
-    'framework': FRAMEWORKPROP,
     'audio': AUDIOPROP,
     'colorwork': COLORWORKPROP,
-    'flag': FLAGPROP,
+    'coatofarms': COATOFARMSPROP,
     'face': IMAGEPROP,          # Would need special property
     'favicon': FAVICONPROP,
+    'flag': FLAGPROP,
+    'framework': FRAMEWORKPROP,
     'grave': GRAVEPROP,
     'icon': ICONPROP,
+    'illustration': IMAGEPROP,  # Would need special property
     'image': IMAGEPROP,
     'interior': INTERIORPROP,
     'logo': LOGOPROP,
     'nightview': NIGHTVIEWPROP,
     'oga': AUDIOPROP,
-    'ogg': VIDEOPROP,
+    'ogg': AUDIOPROP,
     'ogv': VIDEOPROP,
     'pdf': PDFPROP,
     'placename': PLACENAMEPROP,
     'plaque': PLAQUEPROP,
+    'prent': IMAGEPROP,         # Would need special property
+    'pronunciation': PRONUNCIATIONPROP,
     'recto': RECTOPROP,
     'sculpture': DIGITALREPROPROP,
     'signature': SIGNATUREPROP,
+    'spokentext': SPOKENTEXTPROP,
     'verso': VERSOPROP,
     'video': VIDEOPROP,
     'view': VIEWPROP,
     'voicerec': VOICERECPROP,
     'winterview': WINTERVIEWPROP,
+    'wvbanner': VOYAGEBANPROP,
     # others...
 }
 
@@ -461,9 +489,10 @@ for page in page_list:
 
         # Catch errors
         sdc_data = row.get('entities').get(media_identifier)
+        # title, labels, descriptions, statements <- depicts
         ## {'pageid': 125667911, 'ns': 6, 'title': 'File:Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot.pdf', 'lastrevid': 707697714, 'modified': '2022-11-18T20:06:23Z', 'type': 'mediainfo', 'id': 'M125667911', 'labels': {'nl': {'language': 'nl', 'value': 'Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot'}, 'en': {'language': 'en', 'value': 'Wikidata ISBN book description with ISBNlib and Pywikibot'}, 'fr': {'language': 'fr', 'value': 'Description du livre Wikidata ISBN avec ISBNlib et Pywikibot'}, 'de': {'language': 'de', 'value': 'Wikidata ISBN Buchbeschreibung mit ISBNlib und Pywikibot'}, 'es': {'language': 'es', 'value': 'Descripción del libro de Wikidata ISBN con ISBNlib y Pywikibot'}}, 'descriptions': {}, 'statements': []}
 
-        # Missing: how to get the file size
+        # Missing info: how to get the file size?
 
         statement_list = sdc_data.get('statements')
         if not statement_list:
@@ -472,21 +501,26 @@ for page in page_list:
                           .format(media_identifier, page.title()))
             continue
 
+        # This program runs on the basis of depects statements
         depict_list = statement_list.get(DEPICTSPROP)
         if not depict_list:
-            # This program runs on the basis of depects statements
+            # Please add depict statements for each media file
             pywikibot.log('No depicts for {} {}'.format(media_identifier, page.title()))
             continue
 
-        # Get default file type; can be overruled by depict statement
-        file_type = ['image']
+        # We now have valid depicts statements, so we can obtain the media type
+        # Get the default file type; can be overruled by depict statements
+        file_type = ['image']       # initial default
         mime_list = statement_list.get(MIMEPROP)
         if mime_list:
-            # We now have valid depicts statements, so we can obtain the media type
             # Default: image
             # Normally we only have one single MIME type
             mime_type = mime_list[0]['mainsnak']['datavalue']['value']
             file_type = mime_type.split('/')
+
+            if file_type[0] == 'application':
+                # Determine application default media type
+                file_type = [media_props[file_type[1]]]
 
         item_list = []
         preferred = False
@@ -529,11 +563,18 @@ for page in page_list:
                           .format(media_identifier, page.title(), collection))
             continue
 
+        # Could possibly fail with KeyError with non-recognized media types
+        # In that case the new media type should be added to the list
+        media_type = media_props[file_type[0]]
+
+        # Filter low resolution sizes (caveat: logo and other small images)
+        # Skip low quality images (low resolution, which are not identified as small_image)
+
         # Check if the media file is already used on another Wikidata item
         itempage = pywikibot.FilePage(repo, page.title())
         image_used = False
 
-        # This includes P10 video, P18 image, P51 audio, etc.
+        # This includes e.g. P10 video, P18 image, P51 audio, etc.
         # Possibly other links?
         for file_ref in pg.FileLinksGenerator(itempage):
             if file_ref.namespace() == MAINNAMESPACE:
@@ -543,23 +584,14 @@ for page in page_list:
                 pywikibot.log('{} {} is used by {}'
                               .format(media_identifier, page.title(), file_ref.title()))
         if image_used:
-            # Image is already used, so skip
+            # Image is already used, so skip (avoid flooding)
             continue
-
-        if file_type[0] == 'application':
-            # Determine media type
-            media_type = media_props[file_type[1]]
-        else:
-            # Could possibly fail with KeyError with non-recognized media types
-            # In that case the new media type should be added to the list
-            media_type = media_props[file_type[0]]
-
-        # Filter low resolution sizes (caveat: logo)
 
         description_list = sdc_data.get('descriptions')
         if description_list != {}:
             ## ?? Why is descriptions always empty? How could it be registered?
             # The GUI only allows to register labels?
+            # Shouldn't Wiki text descriptions be digitized?
             """
 {'en': {'language': 'en', 'value': 'Belgian volleyball player'}, 'it': {'language': 'it', 'value': 'pallavolista belga'}}
 Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
@@ -567,7 +599,7 @@ Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
             pywikibot.log(description_list)
 
         for qnumber in item_list:
-            # Loop through the target Wikidata items to find a match
+            # Loop through the target Wikidata items to find the first match
             item = pywikibot.ItemPage(repo, qnumber)
 
             try:
@@ -581,7 +613,7 @@ Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
                 # Should update SDC statement for redirect
 
             if media_type in item.claims:
-                # Preferably one single image per Wikidata item
+                # Preferably one single image per Wikidata item (avoid pollution)
                 continue
             elif not prop_is_in_list(item.claims, object_class):
                 # Skip when neither instance, nor subclass
@@ -598,14 +630,14 @@ Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
                     and media_type not in base_media):
                 continue
             elif prop_is_in_list(item.claims, published_work):
-                # We skip publications
+                # We skip publications (good relevant images are extremely rare)
                 continue
-                # Proactive constraint check
-                # Skip low quality images
-                # Note that we unconditionally accept P279 subclass
+                # Proactive constraint check (how could we do this?)
+                # Note that we unconditionally accept all P279 subclasses
             elif item.namespace() == MAINNAMESPACE:
-                # Only register media files to items in the main namespace
+                # Only register media files to items in the main namespace, otherwise skip
                 try:
+                    # Possibly no language label available
                     pywikibot.warning('{} ({}): add media ({}) {} {}'
                                       .format(item.labels[mainlang],
                                               qnumber, media_type, media_identifier, page.title()))
@@ -613,17 +645,17 @@ Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
                     pywikibot.warning('({}): add media ({}) {} {}'
                                       .format(qnumber, media_type, media_identifier, page.title()))
 
-                # Add media statement to item
+                # Add media statement to the item, and process the next media file
                 claim = pywikibot.Claim(repo, media_type)
                 claim.setTarget(page)
                 item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
                 break
         else:
             # All media item slots were already taken
-            # Maybe add more appropriate depicts statements?
+            # Maybe add more appropriate depicts statements, and then rerun the script?
             pywikibot.log('Redundant media {} {}'.format(media_identifier, page.title()))
 
     # Log errors
     except Exception as error:
         pywikibot.log('Error processing {} {}, {}'.format(media_identifier, page.title(), error))
-        #raise  # Uncomment to debug
+        #raise      # Uncomment to debug
