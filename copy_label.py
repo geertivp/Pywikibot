@@ -227,7 +227,7 @@ from datetime import timedelta
 
 # Global variables
 modnm = 'Pywikibot copy_label'      # Module name (using the Pywikibot package)
-pgmid = '2023-06-01 (gvp)'	        # Program ID and version
+pgmid = '2023-07-16 (gvp)'	        # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
@@ -236,7 +236,7 @@ BOTFLAG = True          # Should be False for non-bot accounts
 transcmt = '#pwb Copy label'
 
 # Instances
-HUMANINSTANCE = 'Q5'                # Could be set or list
+HUMANINSTANCE = 'Q5'
 ESPERANTOLANGINSTANCE = 'Q143'
 
 # Properties
@@ -274,6 +274,7 @@ FOUNDDTPROP = 'P571'
 DISSOLVDTPROP = 'P576'
 STARTDTPROP = 'P580'
 ENDDTPROP = 'P582'
+QUALIFYFROMPROP = 'P642'
 OPERDTPROP = 'P729'
 SERVRETDTPROP = 'P730'
 LASTNAMEPROP = 'P734'
@@ -292,9 +293,12 @@ COMMINSTPROP = 'P1612'
 PLACENAMEPROP = 'P1766'
 PLAQUEPROP = 'P1801'
 NOTEQTOPROP = 'P1889'
+COLLAGEPROP = 'P2716'
 ICONPROP = 'P2910'
 PARTITUREPROP = 'P3030'
+DESIGNPLANPROP = 'P3311'
 NIGHTVIEWPROP = 'P3451'
+PANORAMAPROP = 'P4640'
 WINTERVIEWPROP = 'P5252'
 DIAGRAMPROP = 'P5555'
 INTERIORPROP = 'P5775'
@@ -316,6 +320,7 @@ CATEGORYNAMESPACE = 14
 media_props = {
     AERIALVIEWPROP,
     COATOFARMSPROP,
+    COLLAGEPROP,
     COLORWORKPROP,
     DIAGRAMPROP,
     FAVICONPROP,
@@ -329,17 +334,38 @@ media_props = {
     LOGOPROP,
     MAPPROP,
     NIGHTVIEWPROP,
+    PANORAMAPROP,
     PARTITUREPROP,
     PDFPROP,
     PLACENAMEPROP,
     PLAQUEPROP,
     RECTOPROP,
-#    SIGNATUREPROP,
+    SIGNATUREPROP,
     VERSOPROP,
     VIDEOPROP,
     VIEWPROP,
     VOYAGEBANPROP,
     WINTERVIEWPROP,
+}
+
+# To generate 'of' qualifier for SDC depicts
+depict_item = {
+    COATOFARMSPROP: 'Q14659',
+    COLLAGEPROP: 'Q170593',
+    DESIGNPLANPROP: 'Q611203',
+    FAVICONPROP: 'Q2130',
+    FLAGPROP: 'Q14660',
+    GRAVEPROP: 'Q173387',
+    ICONPROP: 'Q138754',
+    LOCATORMAPPROP: 'Q6664848',
+    LOGOPROP: 'Q1886349',
+    MAPPROP: 'Q2298569',
+    PANORAMAPROP: 'Q658252',
+    PLACENAMEPROP: 'Q55498668',
+    PLAQUEPROP: 'Q721747',
+    SIGNATUREPROP: 'Q188675',
+    VIDEOPROP: 'Q98069877',
+    VOYAGEBANPROP: 'Q22920576',
 }
 
 conflicting_statement = {
@@ -361,26 +387,10 @@ mandatory_relation = {  # via P1696
     MAINCATPROP: MAINSUBJECTPROP, MAINSUBJECTPROP: MAINCATPROP,
 }
 
-# Prepare the static part of the SDC P180 depict statement
-# The numeric value needs to be added at runtime
-depict_statement = {
-    'claims': [{
-        'type': 'statement',
-        'rank': 'preferred',    # Because it comes from a Wikidata P18 statement
-        'mainsnak': {
-            'snaktype': 'value',
-            'property': DEPICTSPROP,
-            'datavalue': {
-                'type': 'wikibase-entityid',
-                'value': {
-                    'entity-type': 'item',
-                    # 'numeric-id',
-                    # 'id' are dynamically added
-                }
-            }
-        }
-    }]
-}
+
+"""
+{"entities":{"M17372639":{"pageid":17372639,"ns":6,"title":"File:Brugs Kerkhof Guido Gezelle.jpg","lastrevid":772271921,"modified":"2023-06-08T13:47:37Z","type":"mediainfo","id":"M17372639","labels":{},"descriptions":{},"statements":{"P571":[{"mainsnak":{"snaktype":"value","property":"P571","hash":"135ee2f61e09ee2bb8b4328db588d6edd29a3615","datavalue":{"value":{"time":"+2011-10-26T00:00:00Z","timezone":0,"before":0,"after":0,"precision":11,"calendarmodel":"http://www.wikidata.org/entity/Q1985727"},"type":"time"}},"type":"statement","id":"M17372639$26191E8E-D341-4AFE-BF73-132613446366","rank":"normal"}],"P6216":[{"mainsnak":{"snaktype":"value","property":"P6216","hash":"5570347fdc76d2a80732f51ea10ee4b144a084e0","datavalue":{"value":{"entity-type":"item","numeric-id":50423863,"id":"Q50423863"},"type":"wikibase-entityid"}},"type":"statement","id":"M17372639$042DC9C2-0F7E-482D-A696-0AB727037795","rank":"normal"}],"P275":[{"mainsnak":{"snaktype":"value","property":"P275","hash":"a35b4558d66c92eacbe2f569697ffb1934e0316e","datavalue":{"value":{"entity-type":"item","numeric-id":14946043,"id":"Q14946043"},"type":"wikibase-entityid"}},"type":"statement","id":"M17372639$C3B253E5-D127-40FA-B558-4C1544D1FA73","rank":"normal"}],"P7482":[{"mainsnak":{"snaktype":"value","property":"P7482","hash":"83568a288a8b8b4714a68e7239d8406833762864","datavalue":{"value":{"entity-type":"item","numeric-id":66458942,"id":"Q66458942"},"type":"wikibase-entityid"}},"type":"statement","id":"M17372639$F9CE62D8-A7EE-48FC-BC8C-502BFD476D2B","rank":"normal"}],"P170":[{"mainsnak":{"snaktype":"somevalue","property":"P170","hash":"d3550e860f988c6675fff913440993f58f5c40c5"},"type":"statement","qualifiers":{"P3831":[{"snaktype":"value","property":"P3831","hash":"c5e04952fd00011abf931be1b701f93d9e6fa5d7","datavalue":{"value":{"entity-type":"item","numeric-id":33231,"id":"Q33231"},"type":"wikibase-entityid"}}],"P2093":[{"snaktype":"value","property":"P2093","hash":"e0c0197e220178aa7d77a49cc3226a463b153f83","datavalue":{"value":"Zeisterre","type":"string"}}],"P4174":[{"snaktype":"value","property":"P4174","hash":"2b9891905fac0e237e7575adfde698e2a63e7cd8","datavalue":{"value":"Zeisterre","type":"string"}}],"P2699":[{"snaktype":"value","property":"P2699","hash":"af85c0e2a655a09324c402e4452ec2ef2abc9ea8","datavalue":{"value":"http://commons.wikimedia.org/wiki/User:Zeisterre","type":"string"}}]},"qualifiers-order":["P3831","P2093","P4174","P2699"],"id":"M17372639$234DD68C-428C-41E5-A098-9364961A6BC0","rank":"normal"}],"P180":[{"mainsnak":{"snaktype":"value","property":"P180","hash":"b3c128d5850ce0706e694afc00aa2fb5ccac7daa","datavalue":{"value":{"entity-type":"item","numeric-id":173387,"id":"Q173387"},"type":"wikibase-entityid"}},"type":"statement","qualifiers":{"P642":[{"snaktype":"value","property":"P642","hash":"13ca233362287df2f52077d460ebef58a666c855","datavalue":{"value":{"entity-type":"item","numeric-id":336977,"id":"Q336977"},"type":"wikibase-entityid"}}]},"qualifiers-order":["P642"],"id":"M17372639$b8185896-4eab-2715-5606-388898d07071","rank":"normal"}]}}}}
+"""
 
 """
     Static definitions
@@ -451,9 +461,13 @@ veto_countries = {'Q148', 'Q159', 'Q15180' }
 veto_languages = {'aeb', 'aeb-arab', 'aeb-latn', 'ar', 'arc', 'arq', 'ary', 'arz', 'bcc', 'be' ,'be-tarask', 'bg', 'bn', 'bgn', 'bqi', 'cs', 'ckb', 'cv', 'dv', 'el', 'fa', 'fi', 'gan', 'gan-hans', 'gan-hant', 'glk', 'gu', 'he', 'hi', 'hu', 'hy', 'ja', 'ka', 'khw', 'kk', 'kk-arab', 'kk-cn', 'kk-cyrl', 'kk-kz', 'kk-latn', 'kk-tr', 'ko', 'ks', 'ks-arab', 'ks-deva', 'ku', 'ku-arab', 'ku-latn', 'ko', 'ko-kp', 'lki', 'lrc', 'lzh', 'luz', 'mhr', 'mk', 'ml', 'mn', 'mzn', 'ne', 'new', 'or', 'os', 'ota', 'pl', 'pnb', 'ps', 'ro', 'ru', 'rue', 'sd', 'sdh', 'sh', 'sk', 'sr', 'sr-ec', 'ta', 'te', 'tg', 'tg-cyrl', 'tg-latn', 'th', 'ug', 'ug-arab', 'ug-latn', 'uk', 'ur', 'vep', 'vi', 'yi', 'yue', 'zg-tw', 'zh', 'zh-cn', 'zh-hans', 'zh-hant', 'zh-hk', 'zh-mo', 'zh-my', 'zh-sg', 'zh-tw'}
 
 veto_sitelinks = {
+# https://fi.wikipedia.org/wiki/Käyttäjä:GeertivpBot
+# https://meta.wikimedia.org/wiki/User_talk:Geertivp#c-01miki10-20230714212500-Please_request_a_bot_flag_%40_fiwiki
+'itwiki',   # Blocked https://it.wikipedia.org/wiki/Special:Log/block?page=User:GeertivpBot
 #'nowiki',   # Blocked https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot
 'slwiki',   # Requires wikibot flag
-'ptwiki', 'ruwiki', 'ttwiki', 'wuuwiki',  # Requires CAPTCHA
+'svwiki',     # Infobox
+'eswiki', 'fawiki', 'jawiki', 'ptwiki', 'ruwiki', 'simplewiki', 'ttwiki', 'viwiki', 'wuuwiki', 'zhwiki', # Requires CAPTCHA
 #'be-taraskwiki',                # instantiated using different code "be-x-old"
 }
 
@@ -704,22 +718,21 @@ def is_foreign_lang(lang_list) -> bool:
     return isforeign
 
 
-def is_in_list(statement_list, checklist) -> bool:
+def item_is_in_list(statement_list, checklist):
     """
     Verify if statement list contains at least one item from the checklist
     param: statement_list: Statement list
     param: checklist:      List of values (string)
-    return: Boolean (True when match)
+    return: Matching or empty string
     """
-    isinlist = False
     for seq in statement_list:
         try:
-            if seq.getTarget().getID() in checklist:
-                isinlist = True
-                break
+            isinlist = seq.getTarget().getID()
+            if isinlist in checklist:
+                return isinlist
         except:
             pass    # Ignore NoneType error
-    return isinlist
+    return ''
 
 
 def is_veto_lang_label(lang_list) -> bool:
@@ -755,12 +768,42 @@ def add_missing_depicts(item):
     """
     Add missing SDC depict statements
     """
+
+    # Prepare the main part of the SDC P180 depict statement
+    # The numeric value needs to be added at runtime
+    depict_statement = {
+        'claims': [{
+            'type': 'statement',
+            'mainsnak': {
+                'snaktype': 'value',
+                'property': DEPICTSPROP,
+                'datavalue': {
+                    'type': 'wikibase-entityid',
+                    'value': {
+                        'entity-type': 'item',
+                        # id, numeric-id
+                    }
+                }
+            }
+        }]
+    }
+
     # Find all media files for the item
-    qnumber = item.getID()
     for prop in media_props:
+        qnumber = item.getID()
+        # Representation of
+        if prop in depict_item:
+            qnumber = depict_item[prop]
+
         if prop in item.claims:
             for seq in item.claims[prop]:
+                # Reinitialise the depict statement
                 depict_missing = True
+                depict_statement['claims'][0]['rank'] = 'preferred'    # Because it comes from a Wikidata P18 statement
+                if 'qualifiers' in depict_statement['claims'][0]:
+                    del(depict_statement['claims'][0]['qualifiers'])
+
+                # Get SDC media file info
                 media_page = seq.getTarget()
                 media_name = media_page.title()
                 media_identifier = 'M' + str(media_page.pageid)
@@ -768,33 +811,66 @@ def add_missing_depicts(item):
                 commons_item = sdc_request.submit()
                 sdc_data = commons_item.get('entities').get(media_identifier)
                 sdc_statements = sdc_data.get('statements')
-                # Verify if there is already a depict statement
+
+                # Get any depict statement
                 if sdc_statements:
                     depict_list = sdc_statements.get(DEPICTSPROP)
                     if depict_list:
                         for depict in depict_list:
+                            # Only allow for a single preferred rank -> need to verify all instances
+                            ##print(depict)
+                            if depict['rank'] == 'preferred':
+                                # Default preferred
+                                depict_statement['claims'][0]['rank'] = 'normal'
                             if qnumber == get_sdc_item(depict['mainsnak']).getID():
                                 depict_missing = False
-                                break
 
                 """
 https://commons.wikimedia.org/wiki/Special:EntityData/M82236232.json
 "P180":[{"mainsnak":{"snaktype":"value","property":"P180","hash":"7282af9508eed4a6f6ebc2e92db7368ecdbb61ab","datavalue":{"value":{"entity-type":"item","numeric-id":22668172,"id":"Q22668172"},"type":"wikibase-entityid"}},"type":"statement","id":"M82236232$e1491557-469c-7672-92d6-6e490f7403bf","rank":"normal"}],
-
-"P180":[{"mainsnak":{"snaktype":"value","property":"P180","datavalue":{"value":{"entity-type":"item","numeric-id":22668172,"id":"Q22668172"},"type":"wikibase-entityid"}},"type":"statement","rank":"normal"}],
                 """
                 if depict_missing:
                     # Add the SDC depict statements for this item
-                    depict_statement['claims'][0]['mainsnak']['datavalue']['value']['numeric-id'] = int(qnumber[1:])
                     depict_statement['claims'][0]['mainsnak']['datavalue']['value']['id'] = qnumber
+                    depict_statement['claims'][0]['mainsnak']['datavalue']['value']['numeric-id'] = int(qnumber[1:])
 
+                    # "Representation of" mode
+                    if prop in depict_item:
+                        # Set secondary status
+                        depict_statement['claims'][0]['rank'] = 'normal'
+                        """
+Need to add qualifier
+https://commons.wikimedia.org/wiki/Special:EntityData/M17372639.json
+"qualifiers":{"P642":[{"snaktype":"value","property":"P642","hash":"13ca233362287df2f52077d460ebef58a666c855","datavalue":{"value":{"entity-type":"item","numeric-id":336977,"id":"Q336977"},"type":"wikibase-entityid"}}]},"qualifiers-order":["P642"],"id":"M17372639$b8185896-4eab-2715-5606-388898d07071","rank":"normal"}]}
+                        """
+                        # Build the depict qualifier
+                        depict_statement['claims'][0]['qualifiers'] = {}
+                        depict_statement['claims'][0]['qualifiers'][QUALIFYFROMPROP] = [{
+                            'snaktype': 'value',
+                            'datavalue': {
+                                'type': 'wikibase-entityid',
+                                'value': {
+                                    'entity-type': 'item',
+                                    # id, numeric-id
+                                }
+                            }
+                        }]
+                        depict_statement['claims'][0]['qualifiers'][QUALIFYFROMPROP][0]['property'] = QUALIFYFROMPROP
+                        depict_statement['claims'][0]['qualifiers'][QUALIFYFROMPROP][0]['datavalue']['value']['id'] = item.getID()
+                        depict_statement['claims'][0]['qualifiers'][QUALIFYFROMPROP][0]['datavalue']['value']['numeric-id'] = int(item.getID()[1:])
+
+                        depict_statement['claims'][0]['qualifiers-order'] = [QUALIFYFROMPROP]
+
+                    # Now store the depict statement
+                    pywikibot.debug(depict_statement)
+                    transcmt = '#pwb Add depicts {} statement'.format(qnumber)
                     sdc_payload = {
                         'action': 'wbeditentity',
                         'format': 'json',
                         'id': media_identifier,
                         'data': json.dumps(depict_statement, separators=(',', ':')),
                         'token': csrf_token,
-                        'summary': '#pwb Add depicts statement',
+                        'summary': transcmt,
                         'bot': BOTFLAG,
                     }
 
@@ -803,7 +879,7 @@ https://commons.wikimedia.org/wiki/Special:EntityData/M82236232.json
                         sdc_request.submit()
                         pywikibot.warning('Add SDC depicts {} to {} {}'
                                           .format(qnumber, media_identifier, media_name))
-                    except pywikibot.data.api.APIError as error:
+                    except Exception as error:
                         pywikibot.error(format(error))
                         pywikibot.info(sdc_request)
 
@@ -826,7 +902,7 @@ def wd_proc_all_items():
     errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
 
 # Avoid that the user is waiting for a response while the data is being queried
-    pywikibot.warning('\nProcessing {:d} statements'.format(len(item_list)))
+    pywikibot.warning('Processing {:d} statements'.format(len(item_list)))
 
 # Transaction timing
     now = datetime.now()	# Start the main transaction timer
@@ -884,15 +960,15 @@ def wd_proc_all_items():
 
                 if NATIONALITYPROP not in item.claims:  # Missing nationality (old names)
                     status = 'Nationality'
-                elif is_in_list(item.claims[NATIONALITYPROP], veto_countries):         # nationality blacklist (languages)
+                elif item_is_in_list(item.claims[NATIONALITYPROP], veto_countries):         # nationality blacklist (languages)
                     status = 'Country'
                 elif not ROMANRE.search(label) or mainlang in item.aliases and is_foreign_lang(item.aliases[mainlang]):
                     status = 'Language'
                 elif NATIVENAMEPROP in item.claims and is_veto_lang_label(item.claims[NATIVENAMEPROP]):         # name in native language
                     status = 'Language'
-                elif NATIVELANGPROP in item.claims and is_in_list(item.claims[NATIVELANGPROP], veto_languages_id):     # native language
+                elif NATIVELANGPROP in item.claims and item_is_in_list(item.claims[NATIVELANGPROP], veto_languages_id):     # native language
                     status = 'Language'
-                elif LANGKNOWPROP in item.claims and is_in_list(item.claims[LANGKNOWPROP], veto_languages_id):  # language knowledge
+                elif LANGKNOWPROP in item.claims and item_is_in_list(item.claims[LANGKNOWPROP], veto_languages_id):  # language knowledge
                     status = 'Language'
                 elif FOREIGNSCRIPTPROP in item.claims and is_veto_script(item.claims[FOREIGNSCRIPTPROP]):       # foreign script system
                     status = 'Script'
@@ -1152,7 +1228,7 @@ def wd_proc_all_items():
                 colonloc = commonscat.find(':')
                 if colonloc >= 0:
                     commonscat = commonscat[colonloc + 1:]
-            elif maincat_item and COMMCATPROP in maincat_item:
+            elif maincat_item and COMMCATPROP in maincat_item.claims:
                 commonscat = maincat_item.claims[COMMCATPROP][0].getTarget()
             elif COMMGALPROP in item.claims:                # Commons gallery page
                 commonscat = item.claims[COMMGALPROP][0].getTarget()
@@ -1193,21 +1269,6 @@ def wd_proc_all_items():
                 if noun_in_lower:
                     baselabel = baselabel[0].lower() + baselabel[1:]
 
-                for lang in enlang_list:
-                    # Add a missing EN label
-                    if lang not in item.labels:
-                        item.labels[lang] = baselabel
-                    elif item_name_canon == unidecode.unidecode(item.labels[lang]).casefold():    # Ignore accents
-                        pass
-                    elif lang not in item.aliases:
-                        item.aliases[lang] = [baselabel]       # Assign single alias
-                    else:
-                        for seq in item.aliases[lang]:
-                            if item_name_canon == unidecode.unidecode(seq).casefold():
-                                break
-                        else:
-                            item.aliases[lang].append(baselabel)    # Merge aliases
-
                 # Add Commons category
                 if COMMCATPROP not in item.claims:
                     claim = pywikibot.Claim(repo, COMMCATPROP)
@@ -1215,24 +1276,33 @@ def wd_proc_all_items():
                     item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
                     status = 'Update'
 
-                # Add Wikidata Infobox
+                # Add Wikidata Infobox to Wikimedia Commons Category
                 page = pywikibot.Category(site, commonscat)
                 # Avoid duplicates and Category redirect
                 if not page.text:
                     pywikibot.warning('Empty Wikimedia Commons category page: {}'
                                       .format(commonscat))
-                elif not WDINFOBOX.search(page.text):
-                    page.text = '{{Wikidata Infobox}}\n' + page.text
-                    page.save('#pwb Add Wikidata Infobox')
-                    status = 'Update'
+                else:
+                    inserttext = ''
+                    pageupdated = '#pwb Add'
+
+                    if not WDINFOBOXRE.search(page.text):
+                        inserttext += '{{Wikidata Infobox}}\n'
+                        pageupdated += ' Wikidata Infobox'
+                        pywikibot.warning('Add {} to {}'.format('Wikidata Infobox', 'Wikimedia Commons'))
+
+                    if inserttext != '':
+                        page.text = inserttext + re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
+                        page.save(pageupdated)
+                        status = 'Update'
 
             # Add missing Commonscat statements to Wikipedia
+            # Wikipedia should have no more than 1 transaction per minute (no bot account)
             for sitelang in item.sitelinks:
                 # Get target sitelink
                 if (sitelang in commonscatlist[0]
                         and sitelang not in new_wikis
                         and item.sitelinks[sitelang].namespace == MAINNAMESPACE):
-                    # Wikipedia should only have 4 transactions per minute (no bot account)
                     wpcatpage = ''
                     if maincat_item and sitelang in maincat_item.sitelinks:
                         wpcatpage = maincat_item.sitelinks[sitelang].title
@@ -1317,21 +1387,35 @@ def wd_proc_all_items():
             if SUBCLASSPROP not in item.claims:
                 for propty in conflicting_statement:
                     if propty in item.claims and conflicting_statement[propty] in item.claims:
-                        pywikibot.error('{} {} conflicts with {} statement'
-                                        .format(item.getID(), propty, conflicting_statement[propty]))
+                        conf_item_list = set()
+                        for seq in item.claims[conflicting_statement[propty]]:
+                            conf_item_list.add(seq.getTarget().getID())
+                        conf_item = item_is_in_list(item.claims[propty], conf_item_list)
+                        if conf_item:
+                            pywikibot.error('{} {} possibly conflict with {}:{} statement'
+                                            .format(qnumber, propty, conflicting_statement[propty], conf_item))
 
 # (15) Add symmetric and reciproque statements
                 for propty in mandatory_relation:
                     if propty in item.claims:
                         for seq in item.claims[propty]:
                             sitem = seq.getTarget()
+                            recip_toadd = True
+                            if mandatory_relation[propty] in sitem.claims:
+                                for claim in sitem.claims[mandatory_relation[propty]]:
+                                    if claim.getTarget().getID() == qnumber:
+                                        recip_toadd = False
+                                        break
 
-                            if mandatory_relation[propty] not in sitem.claims:
+                            if recip_toadd:
                                 claim = pywikibot.Claim(repo, mandatory_relation[propty])
                                 claim.setTarget(item)
                                 sitem.addClaim(claim, bot=BOTFLAG,
                                                summary=transcmt + ' Add required ' + mandatory_relation[propty])
                                 status = 'Update'
+            elif INSTANCEPROP in item.claims:
+                pywikibot.info('Both instance ({}) or subclass ({}) property for item {}'
+                                .format(INSTANCEPROP, SUBCLASSPROP, qnumber))
 
 # (16) Add missing SDC depicts statement
             add_missing_depicts(item)
@@ -1367,7 +1451,7 @@ def wd_proc_all_items():
                     item_instance = addcommonscat[2]
 
                     # Build template list regular expression
-                    infobox_template = '{{Infobox|{{Wikidata|{{Persondata|{{Multiple image|{{Databox'
+                    infobox_template = '{{.*Infobox|{{Wikidata|{{Persondata|{{Multiple image|{{Databox'
                     for ibox in range(len(infoboxlist)):
                         if sitelang in infoboxlist[ibox]:
                             infobox_template += '|{{' + infoboxlist[ibox][sitelang]
@@ -1382,7 +1466,7 @@ def wd_proc_all_items():
                         pageupdated += ' ' + personinfobox
                         pywikibot.warning('Add {} to {}'.format(personinfobox, sitelang))
 
-                    # Add missing image on Wikipedia page
+                    # Add one missing image on the Wikipedia page
                     if IMAGEPROP in item.claims and lang in item.labels:
                         # Get the first image from Wikidata
                         image_page = item.claims[IMAGEPROP][0].getTarget()
@@ -1390,14 +1474,14 @@ def wd_proc_all_items():
                         file_name = image_name.split(':', 1)
                         image_name = sitelink.site.namespace(FILENAMESPACE) + ':' + file_name[1]
 
-                        image_alias = '|\[\[File:|\[\[Image:|</gallery>'
+                        image_alias = r'|\[\[File:|\[\[Image:|</gallery>'
                         if lang in image_namespace:
-                            image_alias += '|\[\[' + image_namespace[lang] + ':'
+                            image_alias += r'|\[\[' + image_namespace[lang] + ':'
 
                         if (not re.search(r'\[\[' + sitelink.site.namespace(FILENAMESPACE) + ':'
                                             + image_alias
                                             + '|' + infobox_template
-                                            + '|' + file_name[1],
+                                            + '|' + file_name[1].replace('(', '\(').replace(')', '\)'),
                                           page.text, flags=re.IGNORECASE)):
 
                             # Add 'upright' if height > 1.5 * width
@@ -1406,7 +1490,7 @@ def wd_proc_all_items():
                                 file_info = image_page.latest_file_info.__dict__
                                 file_height = file_info['height']
                                 file_width = file_info['width']
-                                if file_height >= file_width * 1.5:
+                                if file_height > file_width * 1.44:
                                     image_flag += '|upright'
                             except:
                                 pass
@@ -1420,12 +1504,12 @@ def wd_proc_all_items():
                                 page.text = page.text[:headoffset] + '\n' + image_thumb + page.text[headoffset:]
                             else:
                                 page.text = image_thumb + '\n' + page.text
-                            pageupdated += ' image #WPWP'
-                            pywikibot.warning('Add {} to {}, {}'
+                            pageupdated += ' image #WPWP #WPWPBE'
+                            pywikibot.warning('Add {} to {} {}'
                                               .format(image_name, sitelang, item.labels[lang]))
 
                     inserttext = ''
-                    refreplace = re.search(r'<references />|<references/>',
+                    refreplace = re.search('<references />|<references/>',
                                            page.text, flags=re.IGNORECASE)
                     if refreplace and sitelang in referencelist[0]:
                         reftemplate = referencelist[0][sitelang]
@@ -1457,14 +1541,18 @@ def wd_proc_all_items():
                             skip_commonscat += '|{{' + commonscatlist[ibox][sitelang]
 
                     # Interproject links
-                    if sitelang in authoritylist[1]:
-                        skip_commonscat += '|{{' + authoritylist[1][sitelang]
+                    for ibox in [1, 2]:
+                        if sitelang in authoritylist[ibox]:
+                            skip_commonscat += '|{{' + authoritylist[ibox][sitelang]
 
                     commonscattemplate = commonscatlist[0][sitelang]
                     wpcommonscat = addcommonscat[3]
-                    # We assume that noteable humans have a Commons Category
+                    # Add a Commons Category
                     if (wpcommonscat
-                            and not re.search(skip_commonscat + '|Category:' + wpcommonscat,
+                            # Avoid duplicate Commons cat with human Infoboxes
+                            and not (sitelang in {'fawiki', 'huwiki', 'nowiki', 'plwiki'}
+                                     and item_instance == HUMANINSTANCE)
+                            and not re.search(skip_commonscat + '|Category:' + wpcommonscat.replace('(', '\(').replace(')', '\)'),
                                               page.text, flags=re.IGNORECASE)):
                         if inserttext:
                             inserttext += '\n'
@@ -1480,8 +1568,8 @@ def wd_proc_all_items():
                     wpcatpage = addcommonscat[4]
                     wpcattemplate = sitelink.site.namespace(CATEGORYNAMESPACE)
                     if (wpcatpage
-                            and not re.search(r'\[\[' + wpcattemplate + ':' + wpcatpage
-                                                + '|\[\[Category:' + wpcatpage,
+                            and not re.search(r'\[\[' + wpcattemplate + ':' + wpcatpage.replace('(', '\(').replace(')', '\)')
+                                            + r'|\[\[Category:' + wpcatpage.replace('(', '\(').replace(')', '\)'),
                                               page.text, flags=re.IGNORECASE)):
                         page.text += '\n[[' + wpcattemplate + ':' + wpcatpage + ']]'
                         pageupdated += ' [[:{}:{}]]'.format(wpcattemplate, wpcatpage)
@@ -1491,7 +1579,8 @@ def wd_proc_all_items():
                     # Locate the first Category
                     # https://www.wikidata.org/wiki/Property:P373
                     # https://www.wikidata.org/wiki/Q4167836
-                    catsearch = re.search(r'\[\[' + sitelink.site.namespace(CATEGORYNAMESPACE) + ':|\[\[Category:|{{DEFAULTSORT:',
+                    catsearch = re.search(r'\[\[' + sitelink.site.namespace(CATEGORYNAMESPACE)
+                                        + r':|\[\[Category:|{{DEFAULTSORT:|{{SORTUJ:',
                                           page.text, flags=re.IGNORECASE)
                     if catsearch and item_instance == HUMANINSTANCE:
                         # Add DEFAULTSORT for human
@@ -1500,8 +1589,8 @@ def wd_proc_all_items():
                             firstname = item.claims[FIRSTNAMEPROP][0].getTarget().labels[lang]
                             sortorder = lastname + ', ' + firstname
                             sortorderstrip = lastname.replace(' ', '') + ', ' + firstname.replace(' ', '')
-                            if not re.search(r'{{DEFAULTSORT:|' + sortorder
-                                                + '|' + sortorderstrip + '|' + sortorderstrip.replace(' ', ''),
+                            if not re.search('{{DEFAULTSORT:|{{SORTUJ:|' + sortorder
+                                           + '|' + sortorderstrip + '|' + sortorderstrip.replace(' ', ''),
                                              page.text, flags=re.IGNORECASE):
                                 catoffset = catsearch.start()
                                 page.text = page.text[:catoffset] + '{{DEFAULTSORT:' + sortorder + '}}\n' + page.text[catoffset:]
@@ -1538,6 +1627,7 @@ def wd_proc_all_items():
 
                         # Save page updates
                         try:
+                            page.text = re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
                             page.save(pageupdated)
                             lastwpedit = datetime.now()
                         except Exception as error:  # other exception to be used
@@ -1705,7 +1795,8 @@ QSUFFRE = re.compile(r'Q[0-9]+')            # Q-numbers
 ROMANRE = re.compile(r'^[a-z .,"()\'åáàâäæǣçéèêëíìîïńñóòôöœøśßúùûüýÿĳ-]{2,}$', flags=re.IGNORECASE)     # Roman alphabet
 SITELINKRE = re.compile(r'^[a-z]{2,3}wiki$')        # Verify for valid Wikipedia language codes
 SHORTDESCRE = re.compile(r'{{Short description\|(.*)}}', flags=re.IGNORECASE)
-WDINFOBOX = re.compile(r'{{Wikidata infobox|{{Category|{{Cat disambig', flags=re.IGNORECASE)		    # Wikidata infobox
+WDINFOBOXRE = re.compile(r'{{Wikidata infobox|{{Category|{{Cat disambig', flags=re.IGNORECASE)		    # Wikidata infobox
+DEFAULTSORTRE = re.compile(r'{{DEFAULTSORT:', flags=re.IGNORECASE)		    # DEFAULTSORT
 
 inlang = '-'
 while sys.argv and inlang.startswith('-'):
@@ -1761,12 +1852,7 @@ pywikibot.log('Error wait factor:\t{:d}'.format(errwaitfactor))
 # Build list of infoboxes
 infoboxlist = {}
 infoboxlist[0] = get_item_sitelink_dict('Q6249834')         # Infobox person
-# Disallow empty boxes
-del(infoboxlist[0]['enwiki'])
-
 infoboxlist[1] = get_item_sitelink_dict('Q17534637')        # Infobox person Wikidata (overrule)
-# Disallow empty boxes
-del(infoboxlist[1]['enwiki'])
 
 # Swap and merge Wikidata boxes
 for sitelang in infoboxlist[1]:
@@ -1776,29 +1862,55 @@ for sitelang in infoboxlist[1]:
         infoboxlist[1][sitelang] = swapinfobox
     else:
         infoboxlist[0][sitelang] = infoboxlist[1][sitelang]
-infoboxlist[2] = get_item_sitelink_dict('Q5626735')         # Infobox generic
-infoboxlist[3] = get_item_sitelink_dict('Q13553651')        # Infobox (overrule)
-infoboxlist[4] = get_item_sitelink_dict('Q5624818')         # Infobox scientist
-infoboxlist[5] = get_item_sitelink_dict('Q6434929')         # Multiple image
-infoboxlist[6] = get_item_sitelink_dict('Q20702632')        # Databox
-infoboxlist[7] = get_item_sitelink_dict('Q5616161')         # Infobox musical artist
-infoboxlist[8] = get_item_sitelink_dict('Q5747491')         # Taxobox
-infoboxlist[9] = {                                          # Manual exclusions
-'fywiki':'Artyst',          # https://fy.wikipedia.org/w/index.php?title=Kees_van_Kooten&diff=1114402&oldid=1114401&diffmode=source
-'ruwiki':'Однофамильцы',    # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=prev&oldid=129491499&diffmode=source
-'xmfwiki':'ინფოდაფა მენცარი',  # https://xmf.wikipedia.org/w/index.php?title=კეტრინ_ჯონსონი&diff=194620&oldid=194619&diffmode=source
-'yiwiki':'אנפירער',         # https://yi.wikipedia.org/w/index.php?title=אדאלף_היטלער&diff=588334&oldid=588333&diffmode=source
+
+# Disallow empty boxes (no Wikidata statements implemented)
+infoboxlist[2] = {}
+for sitelang in {'enwiki', 'jawiki', 'kowiki', 'plwiki', 'warwiki', 'zhwiki'}:
+    infoboxlist[2][sitelang] = infoboxlist[0][sitelang]
+    del(infoboxlist[0][sitelang])
+
+infoboxlist[3] = get_item_sitelink_dict('Q5626735')         # Infobox generic
+infoboxlist[4] = get_item_sitelink_dict('Q13553651')        # Infobox (overrule)
+infoboxlist[5] = get_item_sitelink_dict('Q5624818')         # Infobox scientist
+infoboxlist[6] = get_item_sitelink_dict('Q6434929')         # Multiple image
+infoboxlist[7] = get_item_sitelink_dict('Q20702632')        # Databox
+infoboxlist[8] = get_item_sitelink_dict('Q5616161')         # Infobox musical artist
+infoboxlist[9] = get_item_sitelink_dict('Q5747491')         # Taxobox
+infoboxlist[10] = get_item_sitelink_dict('Q6424841')        # Infobox politician
+infoboxlist[11] = get_item_sitelink_dict('Q6424841')        # Infobox organization
+infoboxlist[12] = get_item_sitelink_dict('Q5914426')        # Infobox artist
+infoboxlist[13] = get_item_sitelink_dict('Q5615832')        # Infobox author
+infoboxlist[14] = get_item_sitelink_dict('Q42054995')       # Universal infobox
+infoboxlist[15] = get_item_sitelink_dict('Q6055178')        # Infobox park
+infoboxlist[16] = get_item_sitelink_dict('Q5906647')        # Infobox building
+infoboxlist[17] = get_item_sitelink_dict('Q5896997')        # Infobox world heritage
+infoboxlist[18] = get_item_sitelink_dict('Q5901151')        # Infobox sport
+infoboxlist[19] = get_item_sitelink_dict('Q6630855')        # Infobox food
+
+infoboxlist[20] = {                                         # Manual exclusions
+    'azwiki': 'Rəqs',            # No Wikidata
+    'euwiki': 'Biografia',       # Multiple templates
+    'fiwiki': 'Kirjailija',
+    'fywiki': 'Artyst',          # https://fy.wikipedia.org/w/index.php?title=Kees_van_Kooten&diff=1114402&oldid=1114401&diffmode=source
+    'ruwiki': 'Однофамильцы',    # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=prev&oldid=129491499&diffmode=source
+    'ukwiki': 'Unibox',         # https://uk.wikipedia.org/w/index.php?title=Сюанський_папір&diff=39931612&oldid=37227693
+    'xmfwiki': 'ინფოდაფა მენცარი',  # https://xmf.wikipedia.org/w/index.php?title=კეტრინ_ჯონსონი&diff=194620&oldid=194619&diffmode=source
+    'yiwiki': 'אנפירער',         # https://yi.wikipedia.org/w/index.php?title=אדאלף_היטלער&diff=588334&oldid=588333&diffmode=source
+}
+infoboxlist[21] = {
+    'euwiki': '.+ infotaula',
+    'ukwiki': 'Кулінарна страва',
 }
 
 # Wikimedia Image aliases in local language
 image_namespace = get_item_label_dict('Q478798')
-image_namespace['azb'] = 'تصویر'    # Manual overrule
+image_namespace['azbwiki'] = 'تصویر'    # Manual overrule
+image_namespace['hrwiki'] = 'Slika'
 
 referencelist = {}
-referencelist[0] = get_item_sitelink_dict('Q5462890')       # References <references />
-del(commonscatlist[0]['svwiki'])
-
+referencelist[0] = get_item_sitelink_dict('Q5462890')       # Replace <references /> by References
 referencelist[1] = get_item_sitelink_dict('Q10991260')      # Appendix
+
 for sitelang in referencelist[1]:
     if sitelang in referencelist[0]:
         swapinfobox = referencelist[0][sitelang]
@@ -1807,16 +1919,28 @@ for sitelang in referencelist[1]:
     else:
         referencelist[0][sitelang] = referencelist[1][sitelang]
 
+for sitelang in ['itwiki', 'nowiki', 'svwiki']:
+    del(referencelist[0][sitelang])                         # Keep <references />
+
 # List of authority control
 authoritylist = {}
 authoritylist[0] = get_item_sitelink_dict('Q3907614')       # Authority control
 authoritylist[1] = get_item_sitelink_dict('Q5830969')       # Interproject template
-authoritylist[2] = get_item_sitelink_dict('Q6171224')       # Lifetime template
-authoritylist[2]['frwiki'] = authoritylist[0]['frwiki']     # Manual overrules
+authoritylist[1]['euwiki'] = 'Bizialdia'                    # No commonscat
+authoritylist[1]['lvwiki'] = 'Sisterlinks-inline'           # No commonscat (Q26098003)
+
+authoritylist[2] = {                                        # Manual exclusions
+    'eswiki': 'Control de autoridades',
+}
+
+authoritylist[3] = get_item_sitelink_dict('Q6171224')       # Lifetime template
+authoritylist[3]['frwiki'] = authoritylist[0]['frwiki']     # Manual overrules
 authoritylist[0]['frwiki'] = 'Liens'
-authoritylist[3] = {                                        # Manual exclusions
-'frwiki':'Bases',           # Liens = Autorité + Bases
-'ruwiki':'BC',              # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=129492269&oldid=129491434&diffmode=source
+
+authoritylist[4] = {                                        # Manual exclusions
+    'bewiki': 'Бібліяінфармацыя',
+    'frwiki': 'Bases',           # Liens = Autorité + Bases
+    'ruwiki': 'BC',              # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=129492269&oldid=129491434&diffmode=source
 }
 
 # Get the Commonscat template names
@@ -1825,22 +1949,27 @@ commonscatlist[0] = get_item_sitelink_dict('Q48029')        # Commonscat
 # Remove banned Wikipedia languages
 for sitelang in veto_sitelinks:
     del(commonscatlist[0][sitelang])                        # Veto sites
+
 commonscatlist[1] = {                                       # Manual exclusions
-'arzwiki':'لينكات مشاريع شقيقه',   # https://arz.wikipedia.org/w/index.php?title=روجر_رافيل&diff=8088053&oldid=8088052&diffmode=source
-'itwiki':'Interprogetto',   # https://it.wikipedia.org/w/index.php?title=Palazzo_dei_Principi-Vescovi_di_Liegi&diff=132888315&oldid=132888272&diffmode=source
-'nowiki':'Offisielle lenker',  # https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot
-'plwiki':'Biogram infobox', # https://pl.wikipedia.org/w/index.php?title=Tinne_Van_der_Straeten&diff=70065360&oldid=70065349&diffmode=source
-'ruwiki':'BC',              # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=129492269&oldid=129491434&diffmode=source
+'arzwiki': 'لينكات مشاريع شقيقه',   # https://arz.wikipedia.org/w/index.php?title=روجر_رافيل&diff=8088053&oldid=8088052&diffmode=source
+'bewiki': 'Пісьменнік',
+'hywiki': 'Տեղեկաքարտ Խաչքար',  # Q26042874
+'itwiki': 'Interprogetto',   # https://it.wikipedia.org/w/index.php?title=Palazzo_dei_Principi-Vescovi_di_Liegi&diff=132888315&oldid=132888272&diffmode=source
+'nowiki': 'Offisielle lenker',  # https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot
+'ruwiki': 'BC',              # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=129492269&oldid=129491434&diffmode=source
+'ukwiki': 'універсальна картка',
 }
 
 commonscatlist[2] = {                                       # Manual exclusions
-'nowiki':'Offisielt nettsted',  # https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot (redirect)
+'hywiki': 'Տեղեկաքարտ Խաչքար',  # Q26042874
+'nowiki': 'Offisielt nettsted',  # https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot (redirect)
 }
 
 # Get the portal template list
 portallist = {}
 portallist[0] = get_item_sitelink_dict('Q5153')             # Portal
 portallist[1] = get_item_sitelink_dict('Q5030944')          # Navbox
+
 portallist[2] = {
 'nlwiki':'Portaal',
 }
@@ -1881,3 +2010,5 @@ for site in sorted(pywikibot._sites.values()):
                                 site.is_oauth_token_available(), site.logged_in()))
 
 sys.exit(exitstat)
+
+# Einde van de miserie
