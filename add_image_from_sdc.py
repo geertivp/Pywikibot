@@ -15,13 +15,20 @@ registering media file statements (P10, P18, P51)
 to the corresponding Wikidata items.
 
 Basically, it tries to do the same as WDFIST (Magnus Manske),
-on the base of a Wikimedia Commons category;
+on the base of a Wikimedia Commons category,
 a functionality that WDFIST does not offer…
 
-In prnciple the script runs completely automated, without any human intervention,
+In principle the script runs completely automated, without any human intervention,
 but it is strongly advised to verify the resulting changes in Wikidata.
+
 Depending on the quality of the SDC P180 statements, manual corrections might be required,
 both in Wikidata, and in Wikimedia Commons SDC statements.
+
+Use Wikimedia Commons Wiki text /Information or heritage templates and their ID parameter
+to allow for an automatic registration of
+SDC depict statements and the media file in Wikidata.
+Register the related country code derived from its corresponding heritage ID.
+
 Wikimedia Commons is not automatically updated.
 
 Parameters:
@@ -30,8 +37,8 @@ Parameters:
         Can be a Wikimedia Commons category URL
 
     If no parameters are available,
-    a list of media filenames is read via stdin;
-    one filename per line.
+    a list of media filenames is read via stdin,
+    one filename or M-number per line.
 
 Options:
 
@@ -62,6 +69,7 @@ Prerequisites:
         might be done with some Toolforge tool (unexisting yet?),
         via AC/DC,
         or manually adding depicts statements via the GUI
+        An alternative is the /Information template with an item number parameter.
     If there are no SDC P180 statements, no updates in Wikidata are performed.
     The metadata MIMI type is recognized (default image/jpeg)
     Please add a proper SDC MIMI type when needed
@@ -69,16 +77,18 @@ Prerequisites:
 
 Data validation:
 
-    Media files having depict statements are added to Wikidata items in the main namespace.
+    Media files having depict statements are added to Wikidata items.
     The script accepts audio, image, and video.
         For images, some P180 instances can determine subtypes
-    Wikidata disambiguation, category and other items are skipped.
+    Wikidata disambiguation, category and other namespaces are skipped.
     No media file is added when it is already assigned to another Wikidata item.
-    No media file is added if the item holds already another media file.
+    No media file is added if the item holds already another media file of the same type.
     Collection media files should always have one preferred statement;
         avoid Wikidata image statement polution;
         requires a specific Wikidata item for the collection object (which is a good idea!).
     For artist items in principle their work is not added.
+    The script supports compound depict statements like "grave of (person)".
+    Specific properties, like "P1442 (grave)", are used in the case.
 
 Functionality:
 
@@ -140,6 +150,9 @@ Use cases:
         Rerun the program
 
     Follow the category (tree) starting from a media file
+
+    Setup /Information templates for image upload campaigns,
+    allowing to show Wikidata properties linked to the item.
 
 To do:
 
@@ -205,13 +218,13 @@ Known problems:
     Category redirects are not traversed (to be resolved manually).
 
     Wikidata redirects are recognized,
-    but are not retroactively updated in the SDC statements.
+    but are not automatically updated in the SDC statements.
 
     Deleted Wikidata item pages,
-    while Wikimedia Commons SDC P180 statement is still there;
-    this problem is not retroactively resolved.
+    while the Wikimedia Commons SDC P180 statement is still there;
+    this problem is not automatically resolved.
 
-    "Wrong media file" assigned to the item:
+    A "Wrong media file" is possibly assigned to the item:
     Caused by a wrong SDC P180 statement
         To solve:
             Remove the wrong P180 statement from SDC
@@ -229,9 +242,8 @@ Known problems:
         you can ignore this warning.
 
     Sleeping for 0.2 seconds, 2022-12-17 11:48:51
-
-    Pausing due to database lag: Waiting for 10.64.32.12: 5.1477 seconds lagged.
-    Sleeping for 5.0 seconds, 2022-12-25 10:48:31
+        Pausing due to database lag: Waiting for 10.64.32.12: 5.1477 seconds lagged.
+        Sleeping for 5.0 seconds, 2022-12-25 10:48:31
 
     Fatal error:
     RecursionError: maximum recursion depth exceeded while calling a Python object
@@ -248,7 +260,7 @@ Known problems:
         music recording is not a media file (subset of audio)
         music video (P6718) is not a media file (subset of video)
 
-    / is wrongly truncating the category name; use %2f instead.
+    On input, an embedded / is wrongly truncating a category name; use %2f instead.
 
 Documentation:
 
@@ -272,15 +284,15 @@ Documentation:
     https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types
     MIME types
 
+    https://phabricator.wikimedia.org/T326510
+    How to obtain the resolution and the image size from an image via Pywikibot
+
 Resources:
 
     Requires an internet connection
-    Uses 3% CPU on a modern laptop
+    Uses only 3% CPU on a modern laptop
 
 Related projects:
-
-    https://phabricator.wikimedia.org/T326510
-    How to obtain the resolution and the image size from an image via Pywikibot
 
     https://www.wikidata.org/wiki/Wikidata:Database_reports/Constraint_violations/P18
 
@@ -295,19 +307,24 @@ import os               # Operating system: getenv
 import pywikibot		# API interface to Wikidata
 import re		    	# Regular expressions (very handy!)
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
+import unidecode        # Unicode
 from pywikibot import pagegenerators as pg
+from pywikibot.data import api
 
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2023-07-16 (gvp)'	        # Program ID and version
+pgmid = '2023-09-18 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
-recurse_list = True
 
 # Constants
 BOTFLAG = True          # This script requires a bot flag
+transcmt = '#pwb Image metadata'
+recurse_list = True
+
 MINFILESIZE = 75000     # Minimum file size for quality images (ignore smaller images)
 MINRESOLUTION = 800     # Minimum resolution (ignore smaller images)
+
 ENLANG = 'en'
 
 # Namespace IDs
@@ -349,6 +366,7 @@ skipped_instances = {
 # Properties
 VIDEOPROP = 'P10'
 MAPPROP = 'P15'
+COUNTRYPROP = 'P17'
 IMAGEPROP = 'P18'
 INSTANCEPROP = 'P31'
 FLAGPROP = 'P41'
@@ -358,6 +376,7 @@ COATOFARMSPROP = 'P94'
 EDITORPROP = 'P98'
 SIGNATUREPROP = 'P109'
 PUBLISHERPROP = 'P123'
+GENREPROP = 'P136'
 LOGOPROP = 'P154'
 DEPICTSPROP = 'P180'
 COLLECTIONPROP = 'P195'
@@ -365,8 +384,11 @@ ISBNPROP = 'P212'
 LOCATORMAPPROP = 'P242'
 SUBCLASSPROP = 'P279'
 DOIPROP = 'P356'
+NLHERITAGEPROP = 'P359'         # Nederland
+FRHERITAGEPROP = 'P380'         # France
 PRONUNCIATIONPROP = 'P443'
 RESTRICTIONPROP = 'P518'
+GEOLOCATIONPROP = 'P625'
 WORKPROP = 'P629'
 QUALIFYFROMPROP = 'P642'
 EDITIONPROP = 'P747'
@@ -375,8 +397,11 @@ ISBN10PROP = 'P957'
 SPOKENTEXTPROP = 'P989'
 VOICERECPROP = 'P990'
 PDFPROP = 'P996'
+WALHERITAGEPROP = 'P1133'       # Wallonie
 MIMEPROP = 'P1163'
+CAMERALOCATIONPROP = 'P1259'
 GRAVEPROP = 'P1442'
+VLGHERITAGEPROP = 'P1764'       # Vlaanderen
 PLACENAMEPROP = 'P1766'
 PLAQUEPROP = 'P1801'
 AUTHORNAMEPROP = 'P2093'
@@ -385,21 +410,23 @@ ICONPROP = 'P2910'
 PARTITUREPROP = 'P3030'
 DESIGNPLANPROP = 'P3311'
 NIGHTVIEWPROP = 'P3451'
+BRUHERITAGEPROP = 'P3600'       # Brussels
 PANORAMAPROP = 'P4640'
 WINTERVIEWPROP = 'P5252'
 DIAGRAMPROP = 'P5555'
 CHIEFEDITORPROP = 'P5769'
 INTERIORPROP = 'P5775'
-REPROPROP = 'P6243'
+REPROPROP = 'P6243'             # https://commons.wikimedia.org/wiki/File:VanGogh-starry_night_ballance1.jpg
 VERSOPROP = 'P7417'
 RECTOPROP = 'P7418'
 FRAMEWORKPROP = 'P7420'
 VIEWPROP = 'P8517'
 AERIALVIEWPROP = 'P8592'
 FAVICONPROP = 'P8972'
+OBJECTLOCATIONPROP = 'P9149'
 COLORWORKPROP = 'P10093'
 
-# Media type groups
+# Media type properties about humans
 human_media = {
     AUDIOPROP,
     IMAGEPROP,
@@ -408,6 +435,7 @@ human_media = {
     VOICERECPROP,
 }
 
+# Main object properties: instance or subclass
 object_class = {
     INSTANCEPROP,
     SUBCLASSPROP,
@@ -427,7 +455,21 @@ published_work = {
     WORKPROP,
 }
 
+# Determine small images
+small_images = {
+    'favicon',
+    'gif',
+    'icon',
+    'logo',
+    'plan',
+    'signature',
+    'svg',
+    'wvbanner',
+}
+
 # Map media instance to media types
+# See https://www.wikidata.org/wiki/Property:P1687 (to get the Wikidata property)
+# e.g. Q170593 collage -> P2716
 image_types = {
     'Q571': 'book',
     'Q2130': 'favicon',
@@ -450,6 +492,7 @@ image_types = {
     'Q226697': 'perkament',
     'Q266488': 'placename',     # town name
     'Q606876': 'pancarte',
+    'Q611203': 'plan',
     'Q653542': 'spokentext',    # audio description; diffrent from Q110374796 (spoken text)
     'Q658252': 'panoview',
     'Q721747': 'plaque',        # gedenkplaat
@@ -461,11 +504,13 @@ image_types = {
     'Q928357': 'sculpture',     # bronze sculpture
     'Q1153655': 'aerialview',
     'Q1250322': 'digitalimage', # digital image
+    'Q1551015': 'groupphoto',
     'Q1885014': 'plaque',       # herdenkingsmonument
     'Q1886349': 'logo',
     'Q1969455': 'placename',    # street name
     'Q2032225': 'placename',    # German place name
     'Q2075301': 'view',
+    'Q2298569': 'map',
     'Q2998430': 'interior',     # interieur
     'Q3302947': 'audio',        # audio recording
     'Q3362196': 'placename',    # French place name
@@ -483,42 +528,12 @@ image_types = {
     'Q53702817': 'voicerec',    # voice recording
     'Q54819662': 'winterview',
     'Q55498668': 'placename',   # place name
+    'Q70077691': 'groupphoto',
     'Q76419950': 'pancarte',
     'Q98069877': 'video',
     'Q109592922': 'colorwork',
     'Q110611535': 'slides',
     # others...
-}
-
-# Map picture of to image type
-file_type_of_item = {
-    'Q2130': 'favicon',
-    'Q4006': 'map',
-    'Q14659': 'coatofarms',
-    'Q14660': 'flag',
-    'Q138754': 'icon',
-    'Q170593': 'collage',
-    'Q173387': 'grave',
-    'Q188675': 'signature',
-    'Q611203': 'plan',
-    'Q658252': 'panoview',
-    'Q721747': 'plaque',
-    'Q1886349': 'logo',
-    'Q2298569': 'map',
-    'Q6664848': 'locatormap',
-    'Q22920576': 'wvbanner',
-    'Q98069877': 'video',
-    'Q55498668': 'placename',
-}
-
-# Identify small images
-small_images = {
-    'favicon',
-    'icon',
-    'logo',
-    'plan',
-    'signature',
-    'wvbanner',
 }
 
 # Mapping of SDC media MIME types to Wikidata property
@@ -541,7 +556,9 @@ media_props = {
     'favicon': FAVICONPROP,
     'flag': FLAGPROP,
     'framework': FRAMEWORKPROP,
+    'gif': IMAGEPROP,           ## Would require special property
     'grave': GRAVEPROP,
+    'groupphoto': IMAGEPROP,    ## Would require special property
     'icon': ICONPROP,
     'illustration': IMAGEPROP,  ## Would require special property
     'image': IMAGEPROP,
@@ -552,12 +569,12 @@ media_props = {
     'logo': LOGOPROP,
     'map': MAPPROP,
     'mp3': AUDIOPROP,           ## Would require special property
-    'nightview': NIGHTVIEWPROP,
-    'oga': AUDIOPROP,
-    'ogg': AUDIOPROP,           # Fewer files are video
     'mpeg': VIDEOPROP,          ## Would require special property
     'mpg': VIDEOPROP,           ## Would require special property
     'manuscript': PDFPROP,      ## Would require special property
+    'nightview': NIGHTVIEWPROP,
+    'oga': AUDIOPROP,
+    'ogg': AUDIOPROP,           # Fewer files are video
     'ogv': VIDEOPROP,           ## Would require special property
     'pancarte': IMAGEPROP,      ## Would require special property
     'pdf': PDFPROP,
@@ -592,24 +609,26 @@ media_props = {
     # others...
 }
 
-# Prepare the basic part of the SDC P180 depict statement
-# The numeric value needs to be added at runtime
-depict_statement = {
-    'claims': [{
-        'type': 'statement',
-        'rank': 'preferred',    # Because it comes from a Wiki text /Information template
-        'mainsnak': {
-            'snaktype': 'value',
-            'property': DEPICTSPROP,
-            'datavalue': {
-                'type': 'wikibase-entityid',
-                'value': {
-                    'entity-type': 'item',
-                    # id, numeric-id
-                }
-            }
-        }
-    }]
+location_target = [
+    ('Camera location', CAMERALOCATIONPROP),    # Geolocation of camera view point
+    ('Object location', OBJECTLOCATIONPROP),    # Geolocation of object
+]
+
+## Might not be needed
+heritage_target = {
+    #INSTANCEPROP: '',
+    COUNTRYPROP: 'Q31',
+}
+
+# Heritage properties for Wikimedia Commons template heritage IDs
+# Linked properties: P17 P1001
+heritage_prop = {
+    # België
+    'Monument Brussels': BRUHERITAGEPROP,   # Brussels
+    'Monument Wallonie': WALHERITAGEPROP,   # Wallonie
+    'Mérimée': FRHERITAGEPROP,              # France
+    'Onroerend erfgoed': VLGHERITAGEPROP,   # Vlaanderen
+    'Rijksmonument': NLHERITAGEPROP,        # Nederland
 }
 
 
@@ -624,84 +643,6 @@ def get_file_type(filename) -> str:
     return filetype.lower()
 
 
-def get_item_label(item) -> str:
-    """
-    Get the item label.
-    """
-    label = ''
-    for lang in main_languages:
-        if lang in item.labels:
-            label = item.labels[lang]
-            break
-    return label
-
-
-def get_item(qnumber):
-    """
-    Get the item; handle redirects.
-    """
-    item = pywikibot.ItemPage(repo, qnumber)
-
-    try:
-        item.get()
-    except pywikibot.exceptions.IsRedirectPageError:
-        # Resolve a single redirect error
-        item = item.getRedirectTarget()
-        label = get_item_label(item)
-        pywikibot.warning('Item {} ({}) redirects to {}'
-                          .format(label, qnumber, item.getID()))
-        ## qnumber = item.getID()   ## Python doesn't know call by reference...
-    return item
-
-
-def get_language_preferences():
-    """
-    Get the list of preferred languages,
-    using environment variables LANG, LC_ALL, and LANGUAGE.
-    Result:
-        List of ISO 639-1 language codes
-    Documentation:
-        https://www.gnu.org/software/gettext/manual/html_node/Locale-Environment-Variables.html
-    """
-    mainlang = os.getenv('LANGUAGE',
-                         os.getenv('LC_ALL',
-                         os.getenv('LANG', ENLANG))).split(':')
-    main_languages = [lang.split('_')[0] for lang in mainlang] + ['nl', 'fr', 'en', 'de', 'es', 'it']
-    for lang in main_languages:
-        if len(lang) > 3:
-            main_languages.remove(lang)
-    return main_languages
-
-
-def get_sdc_item(sdc_data):
-    """
-    Get the item from the SDC statement.
-    """
-    qnumber = sdc_data['datavalue']['value']['id']
-
-    # Get item
-    item = get_item(qnumber)
-    if item.getID() != qnumber:
-        ## Retroactively update the SDC statement for redirect
-        qnumber = item.getID()   ## Python doesn't know call by reference...
-    return item
-
-
-def get_sdc_label(label_list) -> str:
-    """
-    Get label from SDC data.
-{'en': {'language': 'en', 'value': 'Belgian volleyball player'}, 'it': {'language': 'it', 'value': 'pallavolista belga'}}
-Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
-    """
-    label = ''
-    if label_list:
-        for lang in main_languages:
-            if lang in label_list:
-                label = label_list[lang]['value']
-                break
-    return label
-
-
 def get_url_pagename(subject) -> str:
     """
     Extract pagename from URL.
@@ -711,48 +652,221 @@ def get_url_pagename(subject) -> str:
         subject = subject[slashpos + 1:]
     if subject.find('index.php?title=') == 0:
         subject = subject[16:]
-    return subject
+    amppos = subject.find('&')
+    if amppos > 0:
+        subject = subject[:amppos]
+    return subject.strip()
 
 
-def item_is_in_list(statement_list, checklist):
+def get_property_label(propx) -> str:
     """
-    Verify if statement list contains at least one item from the checklist
-    param: statement_list: Statement list
-    param: checklist:      List of values (string)
-    return: Matching or empty string
+    Get the label of a property.
+
+    :param propx: property (string or property)
+    :return property label (string)
+    Except: undefined property
+    """
+
+    if isinstance(propx, str):
+        propty = pywikibot.PropertyPage(repo, propx)
+    else:
+        propty = propx
+
+    # Return preferred label
+    for lang in main_languages:
+        if lang in propty.labels:
+            return propty.labels[lang]
+
+    # Return any other label
+    for lang in propty.labels:
+        return propty.labels[lang]
+    return '-'
+
+
+def get_item_header(header):
+    """
+    Get the item header (label, description, alias in user language)
+
+    :param header: item label, description, or alias language list (string or list)
+    :return: label, description, or alias in the first available language (string)
+    """
+
+    # Return preferred label
+    for lang in main_languages:
+        if lang in header:
+            return header[lang]
+
+    # Return any other label
+    for lang in header:
+        return header[lang]
+    return '-'
+
+
+def get_item_page(qnumber) -> pywikibot.ItemPage:
+    """
+    Get the item; handle redirects.
+    """
+    if isinstance(qnumber, str):
+        item = pywikibot.ItemPage(repo, qnumber)
+        try:
+            item.get()
+        except pywikibot.exceptions.IsRedirectPageError:
+            # Resolve a single redirect error
+            item = item.getRedirectTarget()
+            label = get_item_header(item.labels)
+            pywikibot.warning('Item {} ({}) redirects to {}'
+                              .format(label, qnumber, item.getID()))
+            qnumber = item.getID()
+    else:
+        item = qnumber
+        qnumber = item.getID()
+
+    while item.isRedirectPage():
+        ## Should fix the sitelinks
+        item = item.getRedirectTarget()
+        label = get_item_header(item.labels)
+        pywikibot.warning('Item {} ({}) redirects to {}'
+                          .format(label, qnumber, item.getID()))
+        qnumber = item.getID()
+
+    return item
+
+
+def get_language_preferences() -> []:
+    """
+    Get the list of preferred languages,
+    using environment variables LANG, LC_ALL, and LANGUAGE.
+    'en' is always appended.
+
+    Format: string delimited by ':'.
+    Main_sublange code,
+
+    Result:
+        List of ISO 639-1 language codes
+    Documentation:
+        https://www.gnu.org/software/gettext/manual/html_node/Locale-Environment-Variables.html
+        https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
+    """
+    mainlang = os.getenv('LANGUAGE',
+                         os.getenv('LC_ALL',
+                         os.getenv('LANG', ENLANG))).split(':')
+    main_languages = [lang.split('_')[0] for lang in mainlang]
+
+    # Cleanup language list
+    for lang in main_languages:
+        if len(lang) > 3:
+            main_languages.remove(lang)
+
+    if ENLANG not in main_languages:
+        main_languages.append(ENLANG)
+
+    return main_languages
+
+
+def get_sdc_item(sdc_data) -> pywikibot.ItemPage:
+    """
+    Get the item from the SDC statement.
+
+    :param sdc_data: SDC item number
+    :return:
+    """
+    # Get item
+    qnumber = sdc_data['datavalue']['value']['id']
+    item = get_item_page(qnumber)
+    return item
+
+
+def get_sdc_label(label_list) -> str:
+    """
+    Get label from SDC data.
+
+    :param label_list: list of language labels
+    :return: matching label (in first matching language)
+    Example:
+{'en': {'language': 'en', 'value': 'Belgian volleyball player'}, 'it': {'language': 'it', 'value': 'pallavolista belga'}}
+Redundant media M70757539 File:Wout Wijsmans (Legavolley 2012).jpg
+    """
+    label = '-'
+    if label_list:
+        for lang in main_languages:
+            if lang in label_list:
+                label = label_list[lang]['value']
+                break
+    return label
+
+
+def get_item_with_prop_value (prop: str, propval: str) -> list:
+    """Get list of items that have a property/value statement
+
+    :param prop: Property ID (string)
+    :param propval: Property value (string; case insensitieve)
+    :return: List of items (Q-numbers)
+
+    See https://www.mediawiki.org/wiki/API:Search
+    """
+    pywikibot.debug('Search statement: ' + prop + ':' + propval)
+    item_name_canon = unidecode.unidecode(propval).casefold()
+    item_list = set()                   # Empty set
+    params = {'action': 'query',        # Statement search
+              'list': 'search',
+              'srsearch': prop + ':' + propval,
+              'srwhat': 'text',
+              'format': 'json',
+              'srlimit': 50}            # Should be reasonable value
+    request = api.Request(site=repo, parameters=params)
+    result = request.submit()
+    # https://www.wikidata.org/w/api.php?action=query&list=search&srwhat=text&srsearch=P212:978-94-028-1317-3
+
+    if 'query' in result:
+        if 'search' in result['query']:
+            # Loop though items
+            for row in result['query']['search']:
+                item = get_item_page(row['title'])
+
+                if prop in item.claims:
+                    for seq in item.claims[prop]:
+                        if unidecode.unidecode(seq.getTarget()).casefold() == item_name_canon:
+                            item_list.add(item.getID()) # Found match
+                            break
+    # Convert set to list
+    return sorted(item_list)
+
+
+def item_is_in_list(statement_list, itemlist):
+    """
+    Verify if statement list contains at least one item from the itemlist
+    :param statement_list: Statement list
+    :param itemlist:      List of values
+    :return: Matching or empty string
     """
     for seq in statement_list:
         try:
             isinlist = seq.getTarget().getID()
-            if isinlist in checklist:
+            if isinlist in itemlist:
                 return isinlist
         except:
             pass    # Ignore NoneType error
     return ''
 
 
-def property_is_in_list(statement_list, proplist) -> bool:
+def property_is_in_list(statement_list, proplist) -> str:
     """
     Verify if a property is used for a statement
 
-    Parameters:
-
-        statement_list: Statement list
-        proplist:       List of properties (string)
-
-    Returns:
-
-    Boolean (True when match)
+    :param statement_list: Statement list
+    :param proplist:       List of properties (string)
+    :return: Matching property
     """
-    isinlist = False
     for prop in proplist:
         if prop in statement_list:
-            isinlist = True
-            break
-    return isinlist
+            return prop
+    return ''
 
 
-INFOQSUFFRE = re.compile(r'/Information\|(Q[0-9]+)}}')            # Q-numbers
+# Compile regular expressions
+INFOQSUFFRE = re.compile(r'/Information\|(Q[0-9]+)}}')                  # Q-numbers
+GEOLOCATIONRE = re.compile(r'{{Object location\|([0-9.]+)\|([0-9.]+)')  # Geolocation
+MSUFFRE = re.compile(r'M[0-9]+')            # M-numbers
 
 # Get language list
 main_languages = get_language_preferences()
@@ -764,13 +878,36 @@ pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
 
 # Connect to databases
 site = pywikibot.Site('commons')
+site.login()            # Must login
 repo = site.data_repository()
 csrf_token = site.tokens['csrf']
+
+# Gather heritage ID properties
+heritage_propx = {}
+heritage_regex = r'{{'
+regex_sep = '('
+for val in heritage_prop:
+    pywikibot.debug('{}\t{}'.format(val, heritage_prop[val]))
+    heritage_propx[heritage_prop[val]] = pywikibot.PropertyPage(repo, heritage_prop[val])
+    heritage_regex += regex_sep + val
+    regex_sep = '|'
+heritage_regex += r')\|([0-9/A-Z-]+)}}'
+pywikibot.debug(heritage_regex)
+HERITAGEIDRE = re.compile(heritage_regex)   # Heritage ID
+
+# Compile the statements
+heritage_targetx={}
+for propty in heritage_target:
+    proptyx = pywikibot.PropertyPage(repo, propty)
+    heritage_targetx[propty] = get_item_page(heritage_target[propty])
+    pywikibot.info('Found {} ({}) {} ({})'
+                   .format(get_item_header(proptyx.labels), propty,
+                           get_item_header(heritage_targetx[propty].labels), heritage_target[propty]))
 
 # Get list of media files from input parameters (either P1 or stdin)
 page_list = []
 if sys.argv:
-    # Get Wikimedia Commons page list from category P1
+    # Get Wikimedia Commons page list from category (P1)
     subject = get_url_pagename(sys.argv.pop(0))
 
     # Get recursive image list from category
@@ -790,10 +927,37 @@ else:
         subject = get_url_pagename(subject)
         if subject:
             try:
-                page_list.append(pywikibot.FilePage(site, subject))
+                if MSUFFRE.search(subject):
+                    # Media file identifier
+                    page = pywikibot.MediaInfo(site, subject).file
+                else:
+                    # Media File name
+                    page = pywikibot.FilePage(site, subject)
+                # Add file to list
+                page_list.append(page)
             except Exception as error:
                 pywikibot.error(error)
     pywikibot.info('{:d} media files in list'.format(len(page_list)))
+
+# Prepare the static part of the SDC P180 depict statement
+# The numeric value needs to be added at runtime
+depict_statement = {
+    'claims': [{
+        'type': 'statement',
+        'rank': 'preferred',    # Because it comes from a Wiki text /Information template
+        'mainsnak': {
+            'snaktype': 'value',
+            'property': DEPICTSPROP,
+            'datavalue': {
+                'type': 'wikibase-entityid',
+                'value': {
+                    'entity-type': 'item',
+                    # id, numeric-id (dynamic part)
+                }
+            }
+        }
+    }]
+}
 
 # Loop through the list of media files
 for page in page_list:
@@ -801,16 +965,17 @@ for page in page_list:
         # We only accept the File namespace
         media_name = page.title()
         #print(media_name)
+        if page.namespace() != FILENAMESPACE:
+            pywikibot.info('Skipping {}'.format(media_name))
+            continue
         media_identifier = 'M' + str(page.pageid)
         ## https://commons.wikimedia.org/wiki/Special:EntityPage/M63763537
         ## https://commons.wikimedia.org/entity/M63763537
-        if page.namespace() != FILENAMESPACE:
-            pywikibot.info('Skipping {} {}'.format(media_identifier, media_name))
-            continue
 
         # Get standaard media file information
+        file_user = '-'
         file_info = page.latest_file_info.__dict__
-        user_name = file_info['user']
+        file_user = file_info['user']
         """
         file_info.keys()
 dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'descriptionurl', 'descriptionshorturl', 'sha1', 'metadata', 'mime'])
@@ -864,7 +1029,9 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
         # Key attributes: pageid, ns, title, labels, descriptions, statements <- depicts, MIME type
         ## {'pageid': 125667911, 'ns': 6, 'title': 'File:Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot.pdf', 'lastrevid': 707697714, 'modified': '2022-11-18T20:06:23Z', 'type': 'mediainfo', 'id': 'M125667911', 'labels': {'nl': {'language': 'nl', 'value': 'Wikidata ISBN-boekbeschrijving met ISBNlib en Pywikibot'}, 'en': {'language': 'en', 'value': 'Wikidata ISBN book description with ISBNlib and Pywikibot'}, 'fr': {'language': 'fr', 'value': 'Description du livre Wikidata ISBN avec ISBNlib et Pywikibot'}, 'de': {'language': 'de', 'value': 'Wikidata ISBN Buchbeschreibung mit ISBNlib und Pywikibot'}, 'es': {'language': 'es', 'value': 'Descripción del libro de Wikidata ISBN con ISBNlib y Pywikibot'}}, 'descriptions': {}, 'statements': []}
 
+        # List of items where a media file could be added
         item_list = []
+        geocoord = []
         preferred = False
 
         #pywikibot.debug(sdc_data)
@@ -873,7 +1040,7 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
         if not sdc_statements:
             # Old images do not have statements
             pywikibot.info('No statements for {} {} {} by {}'
-                           .format(file_type[0], media_identifier, media_name, user_name))
+                           .format(file_type[0], media_identifier, media_name, file_user))
             depict_list = []
         else:
             # We now have valid depicts statements, so we can obtain the media type;
@@ -889,11 +1056,11 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
 
             # This program runs on the basis of depects statements
             depict_list = sdc_statements.get(DEPICTSPROP)
-            if depict_list == None:
+            if not depict_list:
                 # A lot of media files do not have depict statements.
                 # Please add depict statements for each media file.
                 pywikibot.info('No depicts for {} {} {} by {}'
-                              .format(file_type[0], media_identifier, media_name, user_name))
+                               .format(file_type[0], media_identifier, media_name, file_user))
                 depict_list = []
 
             # Add file type from instance list
@@ -901,6 +1068,15 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
             if instance_list:
                 for instance in instance_list:
                     item = get_sdc_item(instance['mainsnak'])
+                    qnumber = item.getID()
+                    if qnumber in image_types:
+                        file_type.insert(0, image_types[qnumber])
+
+            # Get genre
+            genre_list = sdc_statements.get(GENREPROP)
+            if genre_list:
+                for genre in genre_list:
+                    item = get_sdc_item(genre['mainsnak'])
                     qnumber = item.getID()
                     if qnumber in image_types:
                         file_type.insert(0, image_types[qnumber])
@@ -928,10 +1104,10 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                 qnumber = item.getID()
 
                 # Get the original item and the image type
-                if (qnumber in file_type_of_item
+                if (qnumber in image_types
                         and 'qualifiers' in depict
                         and property_is_in_list(depict['qualifiers'], {QUALIFYFROMPROP})):
-                    file_type.insert(0, file_type_of_item[qnumber])
+                    file_type.insert(0, image_types[qnumber])
                     item = get_sdc_item(depict['qualifiers'][QUALIFYFROMPROP][0])
                     qnumber = item.getID()
 
@@ -954,34 +1130,105 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     restricted_item = get_sdc_item(depict['qualifiers'][RESTRICTIONPROP][0])
                     pywikibot.info('Skipping qualifier ({}) for {} ({}) for {} {} {}'
                                    .format(RESTRICTIONPROP,
-                                           get_item_label(restricted_item), restricted_item.getID(),
+                                           get_item_header(restricted_item.labels), restricted_item.getID(),
                                            file_type[0], media_identifier, media_name))
                 elif not preferred:
                     # Add a normal ranked item to the list;
                     # drop normal items when there are already preferred
                     item_list.append(item)
 
+            # Skip depict statements for GLAM collections, unless preferred
             collection_list = sdc_statements.get(COLLECTIONPROP)
             if collection_list and not (preferred or len(item_list) == 1):
-                # Depict statements for GLAM collections
                 # generally describe parts of painting objects;
                 # skip them, unless there is a preferred statement describing the artwork itself.
                 collection_item = get_sdc_item(collection_list[0]['mainsnak'])
-                pywikibot.info('{} ({}) {} {} by {} belongs to collection {} ({}), and not preferred'
-                               .format(file_type[0], media_type,
-                                       media_identifier, media_name, user_name,
-                                       get_item_label(collection_item), collection_item.getID()))
+                pywikibot.info('{} {} {} by {} belongs to collection {} ({}), and not preferred'
+                               .format(file_type[0], media_identifier, media_name, file_user,
+                                       get_item_header(collection_item.labels), collection_item.getID()))
                 item_list = []
 
-        # Find "Information" item numbers from Wiki text
+            # Get geolocation from EXIF metadata (object location has priority above camera location)
+            for seq in location_target:
+                location_coord = sdc_statements.get(seq[1])
+                if location_coord:
+                    geocoord = [float(location_coord[0]['mainsnak']['datavalue']['value']['latitude']),
+                                float(location_coord[0]['mainsnak']['datavalue']['value']['longitude'])]
+                    pywikibot.info('{}: {:.6f},{:.6f}/{}'.format(seq[0], geocoord[0], geocoord[1],
+                            location_coord[0]['mainsnak']['datavalue']['value']['altitude']))
+
+        # Overrule the EXIF data
+        geolocation = GEOLOCATIONRE.findall(page.text)
+        for geoloc in geolocation:
+            geocoord = [float(geoloc[0]), float(geoloc[1])]
+            pywikibot.info('Geolocation: {:.6f},{:.6f}'.format(geocoord[0], geocoord[1]))
+
+        # Find "Information" item numbers from Wiki text and store them as SDC
         info_list = INFOQSUFFRE.findall(page.text)
-        #print(info_list)
+        if info_list:
+            pywikibot.info('Information tag {} found for {} {} {} by {}'
+                           .format(info_list, file_type[0], media_identifier, media_name, file_user))
+
+        # Find heritage ID
+        heritage_id_list = HERITAGEIDRE.findall(page.text)
+        ##print(heritage_id_list)
+        for hertitage_id in heritage_id_list:
+            ##print(hertitage_id)
+            heritage_list = get_item_with_prop_value(heritage_prop[hertitage_id[0]], hertitage_id[1])
+            if not heritage_list:
+                pywikibot.info('{} {} {} {} {} by {} does not have Wikidata item'
+                               .format(hertitage_id[0], hertitage_id[1],
+                                       file_type[0], media_identifier, media_name, file_user))
+            else:
+                for hertitage in heritage_list:
+                    item = get_item_page(hertitage)
+                    pywikibot.info('Found {} {} {} ({}) for {} {} {} by {}'
+                                   .format(hertitage_id[0], hertitage_id[1],
+                                           get_item_header(item.labels), hertitage,
+                                           file_type[0], media_identifier, media_name, file_user))
+
+                    # Assign missing statements
+                    target_property = heritage_propx[heritage_prop[hertitage_id[0]]]
+                    for propty in [COUNTRYPROP]:
+                        # Constraint: A heritage item should belong to one single country
+                        if (propty not in item.claims
+                                or not item_is_in_list(item.claims[propty], [target_property.claims[propty][0].getTarget().getID()])):
+                            # Amend item if value is not already registered
+                            claim = pywikibot.Claim(repo, propty)
+                            claim.setTarget(target_property.claims[propty][0].getTarget())
+                            item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
+                            pywikibot.warning('Add {} ({}) {} ({})'
+                                              .format('country', propty,
+                                                      get_item_header(target_property.claims[propty][0].getTarget().labels),
+                                                      target_property.claims[propty][0].getTarget().getID()))
+
+                    if hertitage not in info_list:
+                        info_list.append(hertitage)
+
+        # Add all items to depict
         for qnumber in info_list:
-            item = pywikibot.ItemPage(repo, qnumber)
+            item = get_item_page(qnumber)
+
+            # Register geocoordinates if not already registered
+            if geocoord and GEOLOCATIONPROP not in item.claims:
+                # Set the right latitude and longitude accuracy (disallow too many decimal digits)
+                # https://doc.wikimedia.org/pywikibot/master/_modules/scripts/claimit.html
+                geocoord[0] = float('{:.6f}'.format(geocoord[0]))
+                geocoord[1] = float('{:.6f}'.format(geocoord[1]))
+                claim = pywikibot.Claim(repo, GEOLOCATIONPROP)
+                claim.setTarget(pywikibot.Coordinate(geocoord[0], geocoord[1], precision=0.000001))  # approx. 11 cm accuracy (1° ~ 111 km)
+                """
+[Claim.fromJSON(DataSite("wikidata", "wikidata"), {'mainsnak': {'snaktype': 'value', 'property': 'P625', 'datatype': 'globe-coordinate', 'datavalue': {'value': {'latitude': 50.959153, 'longitude': 4.232143, 'altitude': None, 'globe': 'http://www.wikidata.org/entity/Q2', 'precision': 1e-06}, 'type': 'globecoordinate'}}, 'type': 'statement', 'id': 'Q122372103$1e429752-b921-47f7-9e1c-6dbda5697fad', 'rank': 'normal'})]
+                """
+                item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
+                pywikibot.warning('Add geolocation {:.6f},{:.6f}'
+                                  .format(geocoord[0], geocoord[1]))
+
             if item not in item_list:
                 # Add item number to depicts list
                 item_list.insert(0, item)
 
+                # Verify if item is in SDC depict
                 depict_missing = True
                 for depict in depict_list:
                     if qnumber == get_sdc_item(depict['mainsnak']).getID():
@@ -995,14 +1242,14 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
 
                     # Now store the depict statement
                     pywikibot.debug(depict_statement)
-                    transcmt = '#pwb Add depicts {} statement'.format(qnumber)
+                    depictsdescr = 'Add SDC depicts {} ({})'.format(get_item_header(get_item_page(qnumber).labels), qnumber)
                     sdc_payload = {
                         'action': 'wbeditentity',
                         'format': 'json',
                         'id': media_identifier,
                         'data': json.dumps(depict_statement, separators=(',', ':')),
                         'token': csrf_token,
-                        'summary': transcmt,
+                        'summary': transcmt + ' ' + depictsdescr + ' statement',
                         'bot': BOTFLAG,
                     }
 
@@ -1012,8 +1259,8 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     """
                     try:
                         sdc_request.submit()
-                        pywikibot.warning('Add SDC depicts {} to {} {} by {}'
-                                          .format(qnumber, media_identifier, media_name, user_name))
+                        pywikibot.warning('{} to {} {} by {}'
+                                          .format(depictsdescr, media_identifier, media_name, file_user))
                     except Exception as error:
                         pywikibot.error(format(error))
                         pywikibot.info(sdc_request)
@@ -1035,11 +1282,12 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                 # e.g. ignore descriptive pages
                 # Show all connected item numbers
                 image_used = True
-                item_ref = get_item(file_ref.title())
-                pywikibot.info('Used {} ({}) {} {} by {}, item {} ({})'
+                item_ref = get_item_page(file_ref.title())
+                ## Other usage info's via item_ref?
+                pywikibot.info('Used {} ({}) {} {} by {} in item {} ({})'
                                .format(file_type[0], media_type,
-                                       media_identifier, media_name, user_name,
-                                       get_item_label(item_ref), item_ref.getID()))
+                                       media_identifier, media_name, file_user,
+                                       get_item_header(item_ref.labels), item_ref.getID()))
         if image_used:
             # Image is already used, so skip (avoid flooding)
             continue
@@ -1053,81 +1301,80 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     and width > 0 and width < MINRESOLUTION)):
             pywikibot.info('{} ({}) {} {} by {} size {:d} {:d}:{:d} is too small'
                            .format(file_type[0], media_type,
-                                   media_identifier, media_name, user_name,
+                                   media_identifier, media_name, file_user,
                                    file_size, width, height))
             continue
 
         for item in item_list:
             # Loop through the target Wikidata items to find the first match
-            if media_type in item.claims:
-                # Preferably one single image per Wikidata item (avoid pollution)
-                continue
-            elif not property_is_in_list(item.claims, object_class):
-                # Skip when neither instance, nor subclass
-                continue
-            elif (INSTANCEPROP in item.claims
+            if (    # Have one single image per Wikidata item (avoid pollution)
+                    media_type in item.claims
+                    # Skip when neither instance, nor subclass
+                    or not property_is_in_list(item.claims, object_class)
+                    # We skip publications (good relevant images are extremely rare)
+                    or property_is_in_list(item.claims, published_work)
                     # Skip Wikimedia disambiguation and category items;
                     # we want real items;
                     # see https://www.wikidata.org/wiki/Property:P18#P2303
-                    and item_is_in_list(item.claims[INSTANCEPROP], skipped_instances)):
-                continue
-            elif (INSTANCEPROP in item.claims
+                    or (INSTANCEPROP in item.claims
+                        and item_is_in_list(item.claims[INSTANCEPROP], skipped_instances))
                     # Human and artwork images are incompatible (distinction between artist and oevre)
-                    and item_is_in_list(item.claims[INSTANCEPROP], human_class)
-                    and media_type not in human_media):
-                continue
-            elif property_is_in_list(item.claims, published_work):
-                # We skip publications (good relevant images are extremely rare)
-                continue
-            elif item.namespace() != MAINNAMESPACE:
-                # Only register media files to items in the main namespace, otherwise skip
-                continue
+                    or (INSTANCEPROP in item.claims
+                        and item_is_in_list(item.claims[INSTANCEPROP], human_class)
+                        and media_type not in human_media)
+                    # Only register media files to items in the main namespace, otherwise skip
+                    or item.namespace() != MAINNAMESPACE):
+                    ## Proactive constraint check (how could we do this?)
+                    # Does there exist a method?
 
-                ## Proactive constraint check (how could we do this?)
-                # Does there exist a method?
+                    # Note that we unconditionally accept all P279 subclasses
 
-                # Note that we unconditionally accept all P279 subclasses
-                # Could there possibly exist a condition to trigger Related image (P6802)?
+                    # Could there possibly exist a condition to trigger Related image (P6802)?
+                continue
             else:
+                # Now we can add the media file to a Wikidata item
+                # Only the first matching item will be registered
+
                 # Get media label
                 media_label = get_sdc_label(sdc_data.get('labels')) # Bijschrift
                 # The GUI allows to only register labels?
-                if media_label:
-                    pywikibot.info(media_label)
+                if not media_label:
+                    media_label = '-'
 
-                # Get media description
+                # Get SDC media description
+                ## ?? Why are descriptions nearly always empty? How could this be registered?
+                # Shouldn't Wiki text descriptions be digitized? (extract the EN description?)
                 media_description = get_sdc_label(sdc_data.get('descriptions'))
-                ## ?? Why is descriptions nearly always empty? How could it be registered?
-                # Shouldn't Wiki text descriptions be digitized?
                 if media_description:
                     pywikibot.log(media_description)
 
                 # Add media statement to the item
-                # Only the first matching item will be registered
-                transcmt = '#pwb Add {} from [[c:Special:EntityPage/{}]] SDC'.format(file_type[0], media_identifier)
+                prop_label = get_property_label(media_type)
+                depictsdescr = 'Add {0} ({1}) from media file [[c:Special:EntityPage/{2}|{2}]] SDC'.format(prop_label, media_type, media_identifier)
                 claim = pywikibot.Claim(repo, media_type)
                 claim.setTarget(page)
-                item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
-                pywikibot.warning('{} ({}): add {} ({}) size {:d} {:d}:{:d} {} {} by {}'
-                                  .format(get_item_label(item), item.getID(),
-                                          file_type[0], media_type, file_size, width, height,
-                                          media_identifier, media_name, user_name))
-
+                """
+Claim.fromJSON(DataSite("wikidata", "wikidata"), {'mainsnak': {'snaktype': 'value', 'property': 'P94', 'datatype': 'commonsMedia', 'datavalue': {'value': 'Ardooie Wapen - 25381 - onroerenderfgoed.jpg', 'type': 'string'}}, 'type': 'statement', 'rank': 'normal'})
+                """
+                item.addClaim(claim, bot=BOTFLAG, summary=transcmt + ' ' + depictsdescr)
+                pywikibot.warning('{} ({}): add {} ({}) {} size {:d} {:d}:{:d} from {} {} by {}'
+                                  .format(get_item_header(item.labels), item.getID(),
+                                          prop_label, media_type, media_label,
+                                          file_size, width, height,
+                                          media_identifier, media_name, file_user))
                 # Do we require a reference?
-                # Probably not; because the medium file is already described by the SDC.
+                # Probably not; because the medium file is implicitly described by the SDC claim comment.
                 break
         else:
             if item_list:
-                # All media item slots were already taken (by other media files)
-                # Maybe we could add more appropriate depicts statements,
+                # All media item slots were already taken in item (by other media files)
+                # Solution: maybe we could add more appropriate depicts statements,
                 # and then rerun the script?
-                pywikibot.info('Redundant {} ({}) {} {} by {}, item {}'
+                pywikibot.info('Redundant {} ({}) {} {} by {} for items {}'
                                .format(file_type[0], media_type,
-                                       media_identifier, media_name, user_name, item.getID()))
+                                       media_identifier, media_name, file_user, [val.getID() for val in item_list]))
     # Log errors
     except Exception as error:
         pywikibot.error('Error processing {} {} by {}, {}'
-                        .format(media_identifier, media_name, user_name, error))
-        #raise      # Uncomment to debug any exceptions
-
-# Einde van de miserie
+                        .format(media_identifier, media_name, file_user, error))
+        #raise      # Uncomment to debug any obscure exceptions
