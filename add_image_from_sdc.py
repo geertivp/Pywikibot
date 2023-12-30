@@ -36,6 +36,8 @@ Parameters:
     P1: Wikimedia Commons category (subcatergories are processed recursively)
         Can be a Wikimedia Commons category URL
 
+    P1 P2:... Property/value
+
     If no parameters are available,
     a list of media filenames is read via stdin,
     one filename or M-number per line.
@@ -304,16 +306,18 @@ Author:
 
 import json             # json data structures
 import os               # Operating system: getenv
+import pdb              # Python debugger
 import pywikibot		# API interface to Wikidata
 import re		    	# Regular expressions (very handy!)
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
 import unidecode        # Unicode
+from datetime import datetime	    # now, strftime, delta time, total_seconds
 from pywikibot import pagegenerators as pg
 from pywikibot.data import api
 
 # Global variables
 modnm = 'Pywikibot add_image_from_sdc'  # Module name (using the Pywikibot package)
-pgmid = '2023-09-18 (gvp)'	            # Program ID and version
+pgmid = '2023-12-30 (gvp)'	            # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
@@ -427,7 +431,7 @@ OBJECTLOCATIONPROP = 'P9149'
 COLORWORKPROP = 'P10093'
 
 # Media type properties about humans
-human_media = {
+human_media_props = {
     AUDIOPROP,
     IMAGEPROP,
     PLAQUEPROP,
@@ -436,13 +440,13 @@ human_media = {
 }
 
 # Main object properties: instance or subclass
-object_class = {
+object_class_props = {
     INSTANCEPROP,
     SUBCLASSPROP,
 }
 
 # Published work properties
-published_work = {
+published_work_props = {
     AUTHORPROP,
     AUTHORNAMEPROP,
     CHIEFEDITORPROP,
@@ -609,6 +613,7 @@ media_props = {
     # others...
 }
 
+# From EXIF as registered in SDC
 location_target = [
     ('Camera location', CAMERALOCATIONPROP),    # Geolocation of camera view point
     ('Object location', OBJECTLOCATIONPROP),    # Geolocation of object
@@ -624,10 +629,12 @@ heritage_target = {
 # Linked properties: P17 P1001
 heritage_prop = {
     # België
+    #'Beschermd erfgoed' has no property?   # https://commons.wikimedia.org/wiki/File:Br%C3%BCgge_(B),_Belfort_von_Br%C3%BCgge_--_2018_--_8611.jpg
     'Monument Brussels': BRUHERITAGEPROP,   # Brussels
-    'Monument Wallonie': WALHERITAGEPROP,   # Wallonie
-    'Mérimée': FRHERITAGEPROP,              # France
     'Onroerend erfgoed': VLGHERITAGEPROP,   # Vlaanderen
+    'Monument Wallonie': WALHERITAGEPROP,   # Wallonie
+
+    'Mérimée': FRHERITAGEPROP,              # France
     'Rijksmonument': NLHERITAGEPROP,        # Nederland
 }
 
@@ -653,7 +660,7 @@ def get_url_pagename(subject) -> str:
     if subject.find('index.php?title=') == 0:
         subject = subject[16:]
     amppos = subject.find('&')
-    if amppos > 0:
+    if False and amppos > 0:###
         subject = subject[:amppos]
     return subject.strip()
 
@@ -864,8 +871,30 @@ def property_is_in_list(statement_list, proplist) -> str:
 
 
 # Compile regular expressions
-INFOQSUFFRE = re.compile(r'/Information\|(Q[0-9]+)}}')                  # Q-numbers
-GEOLOCATIONRE = re.compile(r'{{Object location\|([0-9.]+)\|([0-9.]+)')  # Geolocation
+FILECATRE = re.compile(r'\[\[Category:(.+)]]', flags=re.IGNORECASE)
+
+# Decimal geolocation
+# https://commons.wikimedia.org/wiki/Template:Location
+DECIMALGEOLOCATIONRE = re.compile(r'{{(Location|Object location|Camera location|Globe location|Location dec)\| *([0-9.]+) *\| *([0-9.]+)', flags=re.IGNORECASE)  # Geolocation
+# https://commons.wikimedia.org/wiki/File:Ch%C3%A2teau_des_Comtes_de_Borchgrave_%C3%A0_Dalhem_-_62027-CLT-0005-01.JPG
+
+# DMS geolocation
+DMSGEOLOCATIONRE = {}
+DMSGEOLOCATIONRE[0] = re.compile(r'{{(Location dms|Location|Object location|Camera location|Globe location)\| *([0-9]+) *\| *([0-9]+) *\| *([0-9.]+) *\| *([NS]) *\| *([0-9]+) *\| *([0-9]+) *\| *([0-9.]+) *\| *([EW])', flags=re.IGNORECASE)  # Geolocation
+# {{location dms|51|4|20.97|N|2|39|42.38|E}}
+# {{Object location|50|44|35.06|N|5|43|45.88|E|region:BE}}
+
+# String notation
+DMSGEOLOCATIONRE[1] = re.compile(r'{{(Location dms|Location|Object location|Camera location|Globe location)\| *([0-9]+)° *([0-9]+)′ *([0-9.]+)" *([NS]) *[,|]? *([0-9]+)° *([0-9]+)′ *([0-9.]+)" *([EW])', flags=re.IGNORECASE)  # Geolocation
+# {{Object location|50° 37′ 50.63″ N|6° 01′ 57.61″ E|region:BE}}
+# {{Location|34° 01′ 27.37″ N, 116° 09′ 29.88″ W|region:DE-NI_scale:10000_heading:SW}}
+
+###DMSGEOLOCATIONRE[2] = re.compile(r'{{(Location dms|Location|Object location|Camera location|Globe location)\| *([0-9]+)° *([0-9]+)′ *([0-9.]+)" *([NS]) *,? *([0-9]+)° *([0-9]+)′ *([0-9.]+)" *([EW])', flags=re.IGNORECASE)  # Geolocation
+
+DMSGEOLOCATIONRE[2] = re.compile(r'{{(Location dms|Location|Object location|Camera location|Globe location)\| *([0-9]+) +([0-9]+) +([0-9.]+) *([NS]) *[,|]? *([0-9]+) +([0-9]+) +([0-9.]+) *([EW])', flags=re.IGNORECASE)  # Geolocation
+# {{Location|34 1 27.37 N 116 9 29.88 W|region:DE-NI_scale:10000_heading:SW}}
+
+INFOQSUFFRE = re.compile(r'/Information\|(Q[0-9]+)}}')      # Q-numbers
 MSUFFRE = re.compile(r'M[0-9]+')            # M-numbers
 
 # Get language list
@@ -880,27 +909,31 @@ pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
 site = pywikibot.Site('commons')
 site.login()            # Must login
 repo = site.data_repository()
-csrf_token = site.tokens['csrf']
 
 # Gather heritage ID properties
 heritage_propx = {}
 heritage_regex = r'{{'
 regex_sep = '('
 for val in heritage_prop:
-    pywikibot.debug('{}\t{}'.format(val, heritage_prop[val]))
     heritage_propx[heritage_prop[val]] = pywikibot.PropertyPage(repo, heritage_prop[val])
     heritage_regex += regex_sep + val
     regex_sep = '|'
+    pywikibot.info('{} ({}) is {} ({}) in {} ({})'.format(val, heritage_prop[val],
+                   get_item_header(heritage_propx[heritage_prop[val]].claims[INSTANCEPROP][0].getTarget().labels),
+                   heritage_propx[heritage_prop[val]].claims[INSTANCEPROP][0].getTarget().getID(),
+                   get_item_header(heritage_propx[heritage_prop[val]].claims[COUNTRYPROP][0].getTarget().labels),
+                   heritage_propx[heritage_prop[val]].claims[COUNTRYPROP][0].getTarget().getID()))
 heritage_regex += r')\|([0-9/A-Z-]+)}}'
 pywikibot.debug(heritage_regex)
 HERITAGEIDRE = re.compile(heritage_regex)   # Heritage ID
 
 # Compile the statements
+## Might not be needed
 heritage_targetx={}
 for propty in heritage_target:
     proptyx = pywikibot.PropertyPage(repo, propty)
     heritage_targetx[propty] = get_item_page(heritage_target[propty])
-    pywikibot.info('Found {} ({}) {} ({})'
+    pywikibot.info('{} ({}) {} ({})'
                    .format(get_item_header(proptyx.labels), propty,
                            get_item_header(heritage_targetx[propty].labels), heritage_target[propty]))
 
@@ -919,7 +952,8 @@ if sys.argv:
     except Exception as error:
         pywikibot.critical(error)
 else:
-    # Read Wikimedia Commons page list from stdin
+    # Read Wikimedia Commons page list from stdin, one file per line
+    # Either M-file ID, or File:
     inputfile = sys.stdin.read()
     input_list = sorted(set(inputfile.splitlines()))
     for subject in input_list:
@@ -928,7 +962,7 @@ else:
         if subject:
             try:
                 if MSUFFRE.search(subject):
-                    # Media file identifier
+                    # Media file M-identifier
                     page = pywikibot.MediaInfo(site, subject).file
                 else:
                     # Media File name
@@ -936,7 +970,7 @@ else:
                 # Add file to list
                 page_list.append(page)
             except Exception as error:
-                pywikibot.error(error)
+                pywikibot.error('{}, {}'.format(subject, error))
     pywikibot.info('{:d} media files in list'.format(len(page_list)))
 
 # Prepare the static part of the SDC P180 depict statement
@@ -961,12 +995,16 @@ depict_statement = {
 
 # Loop through the list of media files
 for page in page_list:
+    now = datetime.now()	        # Refresh the timestamp to time the following transaction
+    isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Needed to format output
+    pywikibot.info('\t{}'.format(isotime))
+
     try:
         # We only accept the File namespace
         media_name = page.title()
         #print(media_name)
         if page.namespace() != FILENAMESPACE:
-            pywikibot.info('Skipping {}'.format(media_name))
+            pywikibot.info('Skipping {}:{}'.format(site.namespace(page.namespace()), media_name))
             continue
         media_identifier = 'M' + str(page.pageid)
         ## https://commons.wikimedia.org/wiki/Special:EntityPage/M63763537
@@ -1010,16 +1048,16 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
             file_size = file_info['size']
 
         # Get image height
-        height = 0
+        file_height = 0
         if 'height' in file_info:
-            height = file_info['height']
+            file_height = file_info['height']
 
         # Get image width
-        width = 0
+        file_width = 0
         if 'width' in file_info:
-            width = file_info['width']
+            file_width = file_info['width']
 
-        pywikibot.log('Media size: {:d} {:d}:{:d}'.format(file_size, width, height))
+        pywikibot.log('Media size: {:d} {:d}:{:d}'.format(file_size, file_width, file_height))
 
         # Get media SDC data
         request = site.simple_request(action='wbgetentities', ids=media_identifier)
@@ -1031,7 +1069,7 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
 
         # List of items where a media file could be added
         item_list = []
-        geocoord = []
+        geocoord = ()
         preferred = False
 
         #pywikibot.debug(sdc_data)
@@ -1059,7 +1097,7 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
             if not depict_list:
                 # A lot of media files do not have depict statements.
                 # Please add depict statements for each media file.
-                pywikibot.info('No depicts for {} {} {} by {}'
+                pywikibot.info('No depicts for {} entity/{} {} by {}'
                                .format(file_type[0], media_identifier, media_name, file_user))
                 depict_list = []
 
@@ -1121,20 +1159,39 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                         item_list = []
                     item_list.append(item)
                     preferred = True
-                elif ('qualifiers' in depict
-                        and property_is_in_list(depict['qualifiers'], {RESTRICTIONPROP})):
+                elif ('qualifiers' in depict):
+                        ###and property_is_in_list(depict['qualifiers'], {RESTRICTIONPROP})):
+                    # https://commons.wikimedia.org/wiki/File:Dinant_NMBS_333_IC-Brussel_(OCT_2010).JPG
                     """
 {'P462': [{'snaktype': 'value', 'property': 'P462', 'hash': '4af9c81cc458bf6b99699673fd9268b43ad0c4d4', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 23445, 'id': 'Q23445'}, 'type': 'wikibase-entityid'}}]}
                     """
                     # Ignore items with "applies to" qualifiers
-                    restricted_item = get_sdc_item(depict['qualifiers'][RESTRICTIONPROP][0])
-                    pywikibot.info('Skipping qualifier ({}) for {} ({}) for {} {} {}'
-                                   .format(RESTRICTIONPROP,
-                                           get_item_header(restricted_item.labels), restricted_item.getID(),
-                                           file_type[0], media_identifier, media_name))
+                    for propty in depict['qualifiers']:
+                        if propty not in {QUALIFYFROMPROP}:
+                            prop_label = get_property_label(propty)
+                            for ind in depict['qualifiers'][propty]:
+                                """
+Possible problems:
+
+When using get_sdc_item:
+https://commons.wikimedia.org/w/index.php?title=File:Garmin_GPS_at_Greenwich_Observatory.jpg&oldid=710918494
+ERROR: Error processing entity/M10814205 File:Garmin GPS at Greenwich Observatory.jpg by Bdell555, 'datavalue'
+KeyError: 'datavalue'
+
+ERROR: Error processing entity/M3402186 File:Abraham Govaerts Vierge à l'enfant.JPG by Mn92100~commonswiki, string indices must be integers
+                                """
+                                if isinstance(ind['datavalue']['value'], str):
+                                    restricted_item = ind['datavalue']['value']
+                                else:
+                                    restricted_item = ind['datavalue']['value']['id']
+                                pywikibot.info('Skipping qualifier {} ({}): {} for for item {} ({}) of {} entity/{} {}'
+                                               .format(prop_label, propty,
+                                                       restricted_item,
+                                                       get_item_header(item.labels), qnumber,
+                                                       file_type[0], media_identifier, media_name))
                 elif not preferred:
                     # Add a normal ranked item to the list;
-                    # drop normal items when there are already preferred
+                    # drop normal items when there are already preferred items
                     item_list.append(item)
 
             # Skip depict statements for GLAM collections, unless preferred
@@ -1143,67 +1200,97 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                 # generally describe parts of painting objects;
                 # skip them, unless there is a preferred statement describing the artwork itself.
                 collection_item = get_sdc_item(collection_list[0]['mainsnak'])
-                pywikibot.info('{} {} {} by {} belongs to collection {} ({}), and not preferred'
+                pywikibot.info('{} entity/{} {} by {} belongs to collection {} ({}), and not preferred'
                                .format(file_type[0], media_identifier, media_name, file_user,
                                        get_item_header(collection_item.labels), collection_item.getID()))
                 item_list = []
 
-            # Get geolocation from EXIF metadata (object location has priority above camera location)
+            # Get geolocation from EXIF metadata
+            # 1° ~ 111 km -- 0,00001° ~ 1 m
+            # Object location has priority above camera location
+            # GPS accuracy is 10 m at best...
             for seq in location_target:
                 location_coord = sdc_statements.get(seq[1])
                 if location_coord:
-                    geocoord = [float(location_coord[0]['mainsnak']['datavalue']['value']['latitude']),
-                                float(location_coord[0]['mainsnak']['datavalue']['value']['longitude'])]
-                    pywikibot.info('{}: {:.6f},{:.6f}/{}'.format(seq[0], geocoord[0], geocoord[1],
+                    geocoord = (float(location_coord[0]['mainsnak']['datavalue']['value']['latitude']),
+                                float(location_coord[0]['mainsnak']['datavalue']['value']['longitude']))
+                    pywikibot.info('{}: {:.5f},{:.5f}/{}'.format(seq[0], geocoord[0], geocoord[1],
                             location_coord[0]['mainsnak']['datavalue']['value']['altitude']))
 
-        # Overrule the EXIF data
-        geolocation = GEOLOCATIONRE.findall(page.text)
-        for geoloc in geolocation:
-            geocoord = [float(geoloc[0]), float(geoloc[1])]
-            pywikibot.info('Geolocation: {:.6f},{:.6f}'.format(geocoord[0], geocoord[1]))
+        # Overrule the EXIF data from Wiki text (camera viewpoints could be inaccurate)
+        # Recognize, or ignore variant formats
+        # String formats are not yet recognized, and thus ignored
+        try:
+            for ind in range(len(DMSGEOLOCATIONRE)):
+                geolocation = DMSGEOLOCATIONRE[ind].findall(page.text)
+                for geoloc in geolocation:
+                    lat = float(geoloc[1]) + (float(geoloc[2]) + float(geoloc[3])/60.0)/60.0
+                    if geoloc[4] in 'Ss': lat = -lat
+                    lon = float(geoloc[5]) + (float(geoloc[6]) + float(geoloc[7])/60.0)/60.0
+                    if geoloc[8] in 'Ww': lon = -lon
+                    geocoord = (lat, lon)
+                    pywikibot.info('{}: {:.5f},{:.5f}'.format(geoloc[0], lat, lon))
+
+            geolocation = DECIMALGEOLOCATIONRE.findall(page.text)
+            for geoloc in geolocation:
+                lat = float(geoloc[1])
+                lon = float(geoloc[2])
+                # Only accept decimal format; exclude DMS format
+                if (lat - int(lat) != 0.0
+                        or lon - int(lon) != 0.0):
+                    geocoord = (lat, lon)
+                    pywikibot.info('{}: {:.5f},{:.5f}'.format(geoloc[0], lat, lon))
+        except Exception as error:
+            pywikibot.error(error)
 
         # Find "Information" item numbers from Wiki text and store them as SDC
         info_list = INFOQSUFFRE.findall(page.text)
         if info_list:
-            pywikibot.info('Information tag {} found for {} {} {} by {}'
+            pywikibot.info('Information tag {} found for {} entity/{} {} by {}'
                            .format(info_list, file_type[0], media_identifier, media_name, file_user))
 
         # Find heritage ID
         heritage_id_list = HERITAGEIDRE.findall(page.text)
-        ##print(heritage_id_list)
         for hertitage_id in heritage_id_list:
-            ##print(hertitage_id)
             heritage_list = get_item_with_prop_value(heritage_prop[hertitage_id[0]], hertitage_id[1])
             if not heritage_list:
-                pywikibot.info('{} {} {} {} {} by {} does not have Wikidata item'
+                pywikibot.info('{} {} {} entity/{} {} by {} does not have Wikidata item'
                                .format(hertitage_id[0], hertitage_id[1],
                                        file_type[0], media_identifier, media_name, file_user))
+            elif len(heritage_list) > 1:
+                # https://commons.wikimedia.org/w/index.php?title=File:Br%C3%BCgge_(B),_Belfort_von_Br%C3%BCgge_--_2018_--_8611.jpg&oldid=prev&diff=835341191
+                # Ambigious heritage item:
+                # https://www.wikidata.org/w/index.php?search=P1764%3A29457&title=Special%3ASearch&ns0=1&ns120=1
+                # https://commons.wikimedia.org/wiki/User:XRay
+                pywikibot.info('{} {} {} entity/{} {} by {} has ambigious items {}'
+                               .format(hertitage_id[0], hertitage_id[1],
+                                       file_type[0], media_identifier, media_name, file_user, heritage_list))
             else:
-                for hertitage in heritage_list:
-                    item = get_item_page(hertitage)
-                    pywikibot.info('Found {} {} {} ({}) for {} {} {} by {}'
-                                   .format(hertitage_id[0], hertitage_id[1],
-                                           get_item_header(item.labels), hertitage,
-                                           file_type[0], media_identifier, media_name, file_user))
+                hertitage = heritage_list[0]
+                item = get_item_page(hertitage)
+                pywikibot.info('Found {} {} {} ({}) for {} entity/{} {} by {}'
+                               .format(hertitage_id[0], hertitage_id[1],
+                                       get_item_header(item.labels), hertitage,
+                                       file_type[0], media_identifier, media_name, file_user))
 
-                    # Assign missing statements
-                    target_property = heritage_propx[heritage_prop[hertitage_id[0]]]
-                    for propty in [COUNTRYPROP]:
-                        # Constraint: A heritage item should belong to one single country
-                        if (propty not in item.claims
-                                or not item_is_in_list(item.claims[propty], [target_property.claims[propty][0].getTarget().getID()])):
-                            # Amend item if value is not already registered
-                            claim = pywikibot.Claim(repo, propty)
-                            claim.setTarget(target_property.claims[propty][0].getTarget())
-                            item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
-                            pywikibot.warning('Add {} ({}) {} ({})'
-                                              .format('country', propty,
-                                                      get_item_header(target_property.claims[propty][0].getTarget().labels),
-                                                      target_property.claims[propty][0].getTarget().getID()))
+                # Assign missing statements
+                target_property = heritage_propx[heritage_prop[hertitage_id[0]]]
+                for propty in [COUNTRYPROP]:
+                    # Constraint: A heritage item should belong to one single country
+                    if (propty not in item.claims
+                            or not item_is_in_list(item.claims[propty], [target_property.claims[propty][0].getTarget().getID()])):
+                        # Get the country code from the campaign
+                        # Amend item if value is not already registered
+                        claim = pywikibot.Claim(repo, propty)
+                        claim.setTarget(target_property.claims[propty][0].getTarget())
+                        item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
+                        pywikibot.warning('Add {} ({}) {} ({})'
+                                          .format('country', propty,
+                                                  get_item_header(target_property.claims[propty][0].getTarget().labels),
+                                                  target_property.claims[propty][0].getTarget().getID()))
 
-                    if hertitage not in info_list:
-                        info_list.append(hertitage)
+                if hertitage not in info_list:
+                    info_list.append(hertitage)
 
         # Add all items to depict
         for qnumber in info_list:
@@ -1213,16 +1300,16 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
             if geocoord and GEOLOCATIONPROP not in item.claims:
                 # Set the right latitude and longitude accuracy (disallow too many decimal digits)
                 # https://doc.wikimedia.org/pywikibot/master/_modules/scripts/claimit.html
-                geocoord[0] = float('{:.6f}'.format(geocoord[0]))
-                geocoord[1] = float('{:.6f}'.format(geocoord[1]))
+                lat = float('{:.5f}'.format(geocoord[0]))
+                lon = float('{:.5f}'.format(geocoord[1]))
                 claim = pywikibot.Claim(repo, GEOLOCATIONPROP)
-                claim.setTarget(pywikibot.Coordinate(geocoord[0], geocoord[1], precision=0.000001))  # approx. 11 cm accuracy (1° ~ 111 km)
+                claim.setTarget(pywikibot.Coordinate(lat, lon, precision=0.00001))  # approx. 1 m accuracy (1° ~ 111 km)
                 """
 [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'mainsnak': {'snaktype': 'value', 'property': 'P625', 'datatype': 'globe-coordinate', 'datavalue': {'value': {'latitude': 50.959153, 'longitude': 4.232143, 'altitude': None, 'globe': 'http://www.wikidata.org/entity/Q2', 'precision': 1e-06}, 'type': 'globecoordinate'}}, 'type': 'statement', 'id': 'Q122372103$1e429752-b921-47f7-9e1c-6dbda5697fad', 'rank': 'normal'})]
                 """
                 item.addClaim(claim, bot=BOTFLAG, summary=transcmt)
-                pywikibot.warning('Add geolocation {:.6f},{:.6f}'
-                                  .format(geocoord[0], geocoord[1]))
+                pywikibot.warning('Add geolocation {:.5f},{:.5f}'
+                                  .format(lat, lon))
 
             if item not in item_list:
                 # Add item number to depicts list
@@ -1243,15 +1330,20 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     # Now store the depict statement
                     pywikibot.debug(depict_statement)
                     depictsdescr = 'Add SDC depicts {} ({})'.format(get_item_header(get_item_page(qnumber).labels), qnumber)
+                    commons_token = site.tokens['csrf']
                     sdc_payload = {
                         'action': 'wbeditentity',
                         'format': 'json',
                         'id': media_identifier,
                         'data': json.dumps(depict_statement, separators=(',', ':')),
-                        'token': csrf_token,
+                        'token': commons_token,
                         'summary': transcmt + ' ' + depictsdescr + ' statement',
                         'bot': BOTFLAG,
                     }
+
+                    # Possible problems
+                    # https://commons.wikimedia.org/w/index.php?title=File%3AGent%2C_de_Graslei_vanaf_de_Korenlei_met_oeg24758tm61_IMG_0407_2021-08-13_16.42.jpg&diff=835229129&oldid=660290237
+                    # https://commons.wikimedia.org/w/index.php?title=File_talk%3ADSC_1134_-_307373_-_onroerenderfgoed.jpg#Wrong_heritage_registration?
 
                     sdc_request = site.simple_request(**sdc_payload)
                     """
@@ -1259,16 +1351,20 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     """
                     try:
                         sdc_request.submit()
-                        pywikibot.warning('{} to {} {} by {}'
+                        pywikibot.warning('{} to entity/{} {} by {}'
                                           .format(depictsdescr, media_identifier, media_name, file_user))
                     except Exception as error:
                         pywikibot.error(format(error))
                         pywikibot.info(sdc_request)
 
-        # Could possibly fail with KeyError with non-recognized media types
-        # In that case the missing media type must be added to the list
         pywikibot.debug(file_type)
         pywikibot.debug(item_list)
+        if file_type[0] not in media_props:
+            # Unrecognized media type; assume default "image"
+            # In that case the missing media type must be added to the list
+            pywikibot.error('File type {} not in media_props'
+                            .format(file_type[0]))
+            media_props[file_type[0]] = IMAGEPROP
         media_type = media_props[file_type[0]]
 
         # Check if the media file is used by another Wikidata item
@@ -1284,7 +1380,7 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                 image_used = True
                 item_ref = get_item_page(file_ref.title())
                 ## Other usage info's via item_ref?
-                pywikibot.info('Used {} ({}) {} {} by {} in item {} ({})'
+                pywikibot.info('Used {} ({}) entity/{} {} by {} in item {} ({})'
                                .format(file_type[0], media_type,
                                        media_identifier, media_name, file_user,
                                        get_item_header(item_ref.labels), item_ref.getID()))
@@ -1297,12 +1393,12 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
         # Skip low quality images where large images are expected.
         if (not property_is_in_list(small_images, file_type) and (
                 file_size > 0 and file_size < MINFILESIZE
-                or height > 0 and height < MINRESOLUTION
-                    and width > 0 and width < MINRESOLUTION)):
-            pywikibot.info('{} ({}) {} {} by {} size {:d} {:d}:{:d} is too small'
+                or file_height > 0 and file_height < MINRESOLUTION
+                    and file_width > 0 and file_width < MINRESOLUTION)):
+            pywikibot.info('{} ({}) entity/{} {} by {} size {:d} {:d}:{:d} is too small'
                            .format(file_type[0], media_type,
                                    media_identifier, media_name, file_user,
-                                   file_size, width, height))
+                                   file_size, file_width, file_height))
             continue
 
         for item in item_list:
@@ -1310,9 +1406,9 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
             if (    # Have one single image per Wikidata item (avoid pollution)
                     media_type in item.claims
                     # Skip when neither instance, nor subclass
-                    or not property_is_in_list(item.claims, object_class)
-                    # We skip publications (good relevant images are extremely rare)
-                    or property_is_in_list(item.claims, published_work)
+                    or not property_is_in_list(item.claims, object_class_props)
+                    # We skip publications (good relevant images are extremely rare due to copyright)
+                    or property_is_in_list(item.claims, published_work_props)
                     # Skip Wikimedia disambiguation and category items;
                     # we want real items;
                     # see https://www.wikidata.org/wiki/Property:P18#P2303
@@ -1321,7 +1417,7 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
                     # Human and artwork images are incompatible (distinction between artist and oevre)
                     or (INSTANCEPROP in item.claims
                         and item_is_in_list(item.claims[INSTANCEPROP], human_class)
-                        and media_type not in human_media)
+                        and media_type not in human_media_props)
                     # Only register media files to items in the main namespace, otherwise skip
                     or item.namespace() != MAINNAMESPACE):
                     ## Proactive constraint check (how could we do this?)
@@ -1357,24 +1453,36 @@ dict_keys(['timestamp', 'user', 'size', 'width', 'height', 'comment', 'url', 'de
 Claim.fromJSON(DataSite("wikidata", "wikidata"), {'mainsnak': {'snaktype': 'value', 'property': 'P94', 'datatype': 'commonsMedia', 'datavalue': {'value': 'Ardooie Wapen - 25381 - onroerenderfgoed.jpg', 'type': 'string'}}, 'type': 'statement', 'rank': 'normal'})
                 """
                 item.addClaim(claim, bot=BOTFLAG, summary=transcmt + ' ' + depictsdescr)
-                pywikibot.warning('{} ({}): add {} ({}) {} size {:d} {:d}:{:d} from {} {} by {}'
+                pywikibot.warning('{} ({}): add {} ({}) {} size {:d} {:d}:{:d} from entity/{} {} by {}'
                                   .format(get_item_header(item.labels), item.getID(),
                                           prop_label, media_type, media_label,
-                                          file_size, width, height,
+                                          file_size, file_width, file_height,
                                           media_identifier, media_name, file_user))
                 # Do we require a reference?
                 # Probably not; because the medium file is implicitly described by the SDC claim comment.
+
+                # We are done; only one single media use
                 break
         else:
             if item_list:
                 # All media item slots were already taken in item (by other media files)
                 # Solution: maybe we could add more appropriate depicts statements,
                 # and then rerun the script?
-                pywikibot.info('Redundant {} ({}) {} {} by {} for items {}'
+                pywikibot.info('Redundant {} ({}) entity/{} {} by {} for items {}'
                                .format(file_type[0], media_type,
                                        media_identifier, media_name, file_user, [val.getID() for val in item_list]))
+
+        # List all categories
+        if False:
+            category_list = FILECATRE.findall(page.text)
+            ##print(category_list)
+            pywikibot.info('Mediafile categories:')
+            for filecat in category_list:
+                pywikibot.info(filecat)
+
     # Log errors
     except Exception as error:
-        pywikibot.error('Error processing {} {} by {}, {}'
+        pywikibot.error('Error processing entity/{} {} by {}, {}'
                         .format(media_identifier, media_name, file_user, error))
-        #raise      # Uncomment to debug any obscure exceptions
+        pdb.set_trace()
+        raise      # Uncomment to debug any obscure exceptions
