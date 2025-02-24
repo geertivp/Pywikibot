@@ -1,12 +1,12 @@
 #!/usr/bin/python3
 
 codedoc = """
-Create a person; it allows to set a list of claims, if not already registered
+Create a person and add a list of claims if not already registered
 
 Parameters:
 
     P1: gender (m/f/x/q/M/F)
-    
+
     P2,P3...: optional additional claims (possibility to overrule default claims)
 
     Default claims that can be overruled: e.g. P27 Q31 (nationality:BE).
@@ -14,22 +14,30 @@ Parameters:
 
 Qualifiers:
 
-    -c: Forced creation of new item (overrule homonym issue)
+    -c: Forced creation of new item (overrule and resolve a homonym issue)
 
 stdin:
 
     List of persons, in the following format:
 
-    With a comma: lastname,firstname
+    With a comma: lastname,firstname(s)
         Preferred => automatically register firstname and lastname to the item
 
     Plain name: firstname(s) lastname
+
         Fallback format.
-        Only possible when there are only two names (not combined firstnames, nor multi-part lastnames)
+        Only possible when there are only two names (not combined firstnames, nor multi-part lastnames).
+        Use underscores instead of spaces to aggregate firstnames and lastnames.
 
 Functionality:
 
-    Add author statements to publications
+    Add author statements as found from publications.
+
+    Only the mul-label is stored
+    https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+
+    Do not store obvious item descriptions
+    https://phabricator.wikimedia.org/T303677
 
 Return status:
 
@@ -66,12 +74,13 @@ Known problems:
         Retry later.
 
     Duplicates can possibly be created with augmented replication delays.
-    Do not run this script repeatedly for the same person.
+    Do not immediately run this script repeatedly for the same person.
 
 """
 
 # List the required modules
 import os               # Operating system: getenv
+import pdb              # Python debugger
 import pywikibot		# API interface to Wikidata
 import re		    	# Regular expressions (very handy!)
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
@@ -83,11 +92,12 @@ from pywikibot.data import api
 
 # Global variables
 modnm = 'Pywikibot create_person'   # Module name (using the Pywikibot package)
-pgmid = '2024-10-07 (gvp)'	        # Program ID and version
+pgmid = '2025-02-24 (gvp)'	        # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
 # Technical configuration flags
+MULANG = 'mul'
 MAINLANG = 'en:mul'
 
 # Defaults: be transparent and safe
@@ -118,6 +128,9 @@ maxdelay = 150		# Maximum error delay in seconds (overruling any extreme long pr
     retry_max = 320
 """
 
+# Wikidata transaction comment
+transcmt = '#pwb Create person'
+
 # Properties
 GENREPROP = 'P21'
 NATIONALITYPROP = 'P27'
@@ -131,6 +144,7 @@ ISBNPROP = 'P212'
 OCLDIDPROP = 'P243'
 REFPROP = 'P248'
 SUBCLASSPROP = 'P279'
+COMMONSCATPROP = 'P373'
 EDITIONLANGPROP = 'P407'
 WIKILANGPROP = 'P424'
 PUBYEARPROP = 'P577'
@@ -145,6 +159,7 @@ DEWCLASIDPROP = 'P1036'
 EDITIONTITLEPROP = 'P1476'
 SEQNRPROP = 'P1545'
 EDITIONSUBTITLEPROP = 'P1680'
+NOTEQTOPROP = 'P1889'
 ORIGNAMEPROP = 'P1932'
 AUTHORNAMEPROP = 'P2093'
 FASTIDPROP = 'P2163'
@@ -160,13 +175,13 @@ LASTNAMEINSTANCE = 'Q101352'
 TOPONYMLASTNAMEINSTANCE = 'Q17143070'
 WRITERINSTANCE = 'Q36180'
 
-all_languages = ['mul']  # Add labels for all those languages
+all_languages = [MULANG]  # Add labels for all those languages
 
-author_prop_list = [AUTHORPROP, EDITORPROP, ILLUSTRATORPROP, PREFACEBYPROP, AFTERWORDBYPROP]
+author_prop_list = {AUTHORPROP, EDITORPROP, ILLUSTRATORPROP, PREFACEBYPROP, AFTERWORDBYPROP}
 
 author_profession = {
-AUTHORINSTANCE,
-WRITERINSTANCE,
+    AUTHORINSTANCE,
+    WRITERINSTANCE,
 }
 
 
@@ -186,8 +201,7 @@ def fatal_error(errcode, errtext):
 
 
 def get_item_header(header):
-    """
-    Get the item header (label, description, alias in user language)
+    """Get the item header (label, description, alias in user language).
 
     :param header: item label, description, or alias language list (string or list)
     :return: label, description, or alias in the first available language (string)
@@ -205,8 +219,7 @@ def get_item_header(header):
 
 
 def get_item_page(qnumber) -> pywikibot.ItemPage:
-    """
-    Get the item; handle redirects.
+    """Get the item; handle redirects.
     """
     if isinstance(qnumber, str):
         item = pywikibot.ItemPage(repo, qnumber)
@@ -235,8 +248,7 @@ def get_item_page(qnumber) -> pywikibot.ItemPage:
 
 
 def item_is_in_list(statement_list, itemlist):
-    """
-    Verify if statement list contains at least one item from the itemlist
+    """Verify if statement list contains at least one item from the itemlist
     param: statement_list: Statement list
     param: itemlist:      List of values
     return: First matching, or empty string
@@ -252,17 +264,11 @@ def item_is_in_list(statement_list, itemlist):
 
 
 def item_has_label(item, label):
-    """
-    Verify if the item has a label
+    """Verify if the item has a label or alias.
 
-    Parameters:
-
-        item: Item
-        label: Item label (string)
-
-    Returns:
-
-        Matching string
+    :param item: Item
+    :param label: Item label (string)
+    :return: Matching string
     """
     label = unidecode.unidecode(label).casefold()
     for lang in item.labels:
@@ -276,12 +282,12 @@ def item_has_label(item, label):
     return ''
 
 
-def get_item_list(item_name: str, instance_id) -> list:
-    """Get list of items by name, belonging to an instance (list)
+def get_item_list(item_name: str, instance_id) -> set():
+    """Get list of items by name, belonging to an instance (list).
 
     :param item_name: Item name (string; case sensitive)
     :param instance_id: Instance ID (set, or list)
-    :return: List of items (Q-numbers)
+    :return: Set of items
 
     See https://www.wikidata.org/w/api.php?action=help&modules=wbsearchentities
     """
@@ -301,8 +307,8 @@ def get_item_list(item_name: str, instance_id) -> list:
 
     if 'search' in result:
         # Loop though items
+        item_name_canon = unidecode.unidecode(item_name).casefold()
         for row in result['search']:
-            ##print(row)
             item = get_item_page(row['id'])
 
             # Matching instance, strict equal comparison
@@ -312,21 +318,21 @@ def get_item_list(item_name: str, instance_id) -> list:
                     or item_is_in_list(item.claims[INSTANCEPROP], instance_id)):
                 # Search all languages both for labels and aliases
                 for lang in item.labels:
-                    if item_name == item.labels[lang]:
-                        item_list.add(item.getID())     # Label match
+                    if item_name_canon == unidecode.unidecode(item.labels[lang]).casefold():
+                        item_list.add(item)     # Label match
                         break
                 for lang in item.aliases:
                     for seq in item.aliases[lang]:
-                        if item_name == seq:
-                            item_list.add(item.getID()) # Alias match
+                        if item_name_canon == unidecode.unidecode(seq).casefold():
+                            item_list.add(item) # Alias match
                             break
     pywikibot.log(item_list)
     # Convert set to list; keep sort order (best matches first)
-    return list(item_list)
+    return item_list
 
 
-def get_item_with_prop_value (prop: str, propval: str) -> list:
-    """Get list of items that have a property/value statement
+def get_item_with_prop_value (prop: str, propval: str) -> set():
+    """Get list of items that have a property/value statement.
 
     :param prop: Property ID (string)
     :param propval: Property value (string; case insensitieve)
@@ -342,7 +348,7 @@ def get_item_with_prop_value (prop: str, propval: str) -> list:
               'srsearch': prop + ':' + propval,
               'srwhat': 'text',
               'format': 'json',
-              'srlimit': 50}            # Should be reasonable value
+              'srlimit': 200}           # Should be reasonable value
     request = api.Request(site=repo, parameters=params)
     result = request.submit()
     # https://www.wikidata.org/w/api.php?action=query&list=search&srwhat=text&srsearch=P212:978-94-028-1317-3
@@ -356,15 +362,14 @@ def get_item_with_prop_value (prop: str, propval: str) -> list:
             if prop in item.claims:
                 for seq in item.claims[prop]:
                     if unidecode.unidecode(seq.getTarget()).casefold() == item_name_canon:
-                        item_list.add(item.getID()) # Found match
+                        item_list.add(item) # Found match
                         break
     # Convert set to list
-    return sorted(item_list)
+    return item_list
 
 
 def get_language_preferences() -> []:
-    """
-    Get the list of preferred languages,
+    """Get the list of preferred languages,
     using environment variables LANG, LC_ALL, and LANGUAGE.
     'en' is always appended.
 
@@ -372,8 +377,10 @@ def get_language_preferences() -> []:
     Main_sublange code,
 
     Result:
+
         List of ISO 639-1 language codes
     Documentation:
+
         https://www.gnu.org/software/gettext/manual/html_node/Locale-Environment-Variables.html
         https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes
     """
@@ -395,7 +402,8 @@ def get_language_preferences() -> []:
 
 
 def get_prop_val_object_label(item, proplist) -> str:
-    """Get property value label
+    """Get property value label.
+
     :param item: Wikidata item
     :param proplist: Search list of properties
     :return: concatenated list of value labels
@@ -414,8 +422,7 @@ def get_prop_val_object_label(item, proplist) -> str:
 
 
 def get_property_label(propx) -> str:
-    """
-    Get the label of a property.
+    """Get the label of a property.
 
     :param propx: property (string or property)
     :return property label (string)
@@ -447,7 +454,7 @@ def wd_proc_all_items():
     errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
 
 # Avoid that the user is waiting for a response while the data is being queried
-    pywikibot.info('Processing %d statements' % (len(itemlist)))
+    pywikibot.info('Processing {:d} statements'.format(len(itemlist)))
 
 # Transaction timing
     now = datetime.now()	# Start the main transaction timer
@@ -461,12 +468,14 @@ def wd_proc_all_items():
       firstname = ''
       lastname = ''
       objectname = ''
+
+      # Process firstname and lastname
       name = newitem.split(',')
       if len(name) == 2:
           # Reorder lastname, firstname
           # Remove multiple spaces
-          firstname = ' '.join(name[1].split())
-          lastname = ' '.join(name[0].split())
+          firstname = ' '.join(name[1].replace('_', ' ').split())
+          lastname = ' '.join(name[0].replace('_', ' ').split())
           if not firstname:
             objectname = lastname
           elif not lastname:
@@ -497,34 +506,61 @@ def wd_proc_all_items():
         status = 'OK'
         label = {}
         alias = []
-        descr = {}
         commonscat = '' # Commons category
         nationality = ''
         qnumber = ''    # In case or error
 
         try:			# Error trapping (prevents premature exit on transaction error)
             # Get all matching items
+            pywikibot.info('')
             name_list = get_item_list(objectname, [target[INSTANCEPROP]])
 
             ## Known problem: item without INSTANCEPROP can cause duplicates
             if not name_list or showcode:
-                # Create new item
-                label['mul'] = objectname
+                # Create new item; only one single label
+                label[MULANG] = objectname
 
                 try:
                     item = pywikibot.ItemPage(repo)             # Create item
-                    item.editEntity( {'labels': label}, summary=transcmt)
+                    item.editLabels(labels=label, summary=transcmt, bot=wdbotflag)
                     qnumber = item.getID()
                     pywikibot.warning('Created person {} ({})'
                                       .format(objectname, qnumber))
+
+                    # Generate not equal statements
+                    if name_list:
+                        propty_label = get_property_label(NOTEQTOPROP)
+                        for sitem in name_list:
+                            sqnumber = sitem.getID()
+                            slabel = get_item_header(sitem.labels)
+
+                            # Because we have a new item, be can assign symmetric property
+                            claim = pywikibot.Claim(repo, NOTEQTOPROP)
+                            claim.setTarget(sitem)
+                            item.addClaim(claim, bot=wdbotflag, summary=transcmt + ' Add {} ({})'
+                                              .format(propty_label, NOTEQTOPROP))
+                            pywikibot.warning('Add statement {}:{} ({}:{}) to {} ({})'
+                                              .format(propty_label, slabel,
+                                                      NOTEQTOPROP, sqnumber,
+                                                      objectname, qnumber))
+
+                            claim = pywikibot.Claim(repo, NOTEQTOPROP)
+                            claim.setTarget(item)
+                            sitem.addClaim(claim, bot=wdbotflag, summary=transcmt + ' Add {} ({})'
+                                              .format(propty_label, NOTEQTOPROP))
+                            pywikibot.warning('Add statement {}:{} ({}:{}) to {} ({})'
+                                              .format(propty_label, objectname,
+                                                      NOTEQTOPROP, qnumber,
+                                                      slabel, sqnumber))
+
                 except pywikibot.exceptions.OtherPageSaveError as error:
-                    pywikibot.error('Error creating %s, %s' % (objectname, error))
+                    pywikibot.error('Error creating {}, {}'.format(objectname, error))
                     status = 'Error'	    # Handle any generic error
                     errcount += 1
                     exitstat = max(exitstat, 10)
             elif len(name_list) == 1:
                 status = 'Update'              # Update item
-                item = get_item_page(name_list[0])
+                item = name_list.pop()
                 qnumber = item.getID()
 
                 for lang in all_languages:
@@ -543,12 +579,34 @@ def wd_proc_all_items():
                         while item.labels[lang] in item.aliases[lang]:
                             item.aliases[lang].remove(item.labels[lang])
 
-                item.editEntity( {'labels': item.labels, 'aliases': item.aliases}, summary=transcmt)
+                # Enforce mul labels
+                """
+                ## Not yet agreed by community...
+                for lang in item.labels:
+                    if lang != MULANG and item.labels[lang] == objectname:
+                        item.labels[lang] = ''
+                """
+
+                """
+                ## Bad idea
+                for lang in item.aliases:
+                    while item.labels[MULANG] in item.aliases[lang]:
+                        item.aliases[lang].remove(item.labels[MULANG])
+                """
+
+                # Don't copy aliases
+                if False and MULANG not in item.aliases and mainlang in item.aliases:
+                    item.aliases[MULANG] = item.aliases[mainlang]
+                    ##item.aliases[mainlang] = []
+
+                item.editEntity({'labels': item.labels, 'aliases': item.aliases},
+                                summary=transcmt, bot=wdbotflag)
                 pywikibot.info('Found person {} ({})'
-                                  .format(objectname, qnumber))
+                               .format(objectname, qnumber))
             else:
                 status = 'Ambiguous'            # Item is not unique
-                pywikibot.error('Ambiguous person name {} {}'.format(objectname, name_list))
+                pywikibot.error('Ambiguous person name {} {}'
+                                .format(objectname, [item.getID() for item in name_list]))
 
 # Register claims
             if status in ['OK', 'Update']:
@@ -561,41 +619,72 @@ def wd_proc_all_items():
                             if val == targetx[propty]:
                                 propstatus = 'Skip'
                             else:
-                                propstatus = 'other'
-                                pywikibot.warning('Possible conflicting statement {}:{} - {} for {}'
-                                                  .format(propty, target[propty], val.getID(), qnumber))
+                                propstatus = 'Other'
+                                pywikibot.warning('Conflicting statement {}:{} ({}:{}) - {} ({}) for {}'
+                                                  .format(get_property_label(propty), targetx[propty].labels[mainlang],
+                                                          propty, target[propty],
+                                                          get_item_header(val.labels), val.getID(), qnumber))
 
                     if propstatus == 'OK':      # Claim is missing, so add it now
                         claim = pywikibot.Claim(repo, propty)
                         claim.setTarget(targetx[propty])
                         item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                        pywikibot.warning('Adding statement {}:{} ({}:{}) to {} ({})'
-                                          .format(get_property_label(propty), get_item_header(targetx[propty].labels),
+                        pywikibot.warning('Add {}:{} ({}:{}) to {} ({})'
+                                          .format(get_property_label(propty), targetx[propty].labels[mainlang],
                                                   propty, target[propty], objectname, qnumber))
 
-# Assign first name and last name
-                name_target = [('first name', FIRSTNAMEPROP, firstname),
-                               ('last name', LASTNAMEPROP, lastname)]
+                # Assign firstname and lastname
+                name_target = {
+                    FIRSTNAMEPROP: ['firstname', firstname, True],  # Must split firstname
+                    LASTNAMEPROP: ['lastname', lastname, False],    # Lastname can contain spaces
+                }
 
-                for seq in name_target:
-                    if seq[2] and seq[1] not in item.claims:
-                        name_list = get_item_list(seq[2], propreqinst[seq[1]])
-                        if len(name_list) == 1:
-                            claim = pywikibot.Claim(repo, seq[1])
-                            claim.setTarget(pywikibot.ItemPage(repo, name_list[0]))
-                            item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                            pywikibot.warning('Add {}:{} ({}:{}) to {} ({})'
-                                              .format(seq[0], seq[2], seq[1], name_list[0],
-                                                      objectname, qnumber))
-                        elif name_list:
-                            pywikibot.error('Ambiguous {} {} {}'.format(seq[0], seq[2], name_list))
+                # https://www.wikidata.org/wiki/Q2019359 Willem Jan Neutelings
+                for propty in name_target:
+                    # Add missing firstname or lastname
+                    nameval = name_target[propty]
+                    if nameval[1]:
+                        if nameval[2]:
+                            # Split the sequence of firstnames
+                            split_list = [val for val in nameval[1].split()]
                         else:
-                            pywikibot.error('Unknown {} {}'.format(seq[0], seq[2]))
+                            # Keep the lastname as one unit, even if there are spaces
+                            split_list = [nameval[1]]
+
+                        name_seq = 0
+                        for val in split_list:
+                            # Assign a sequence number for multiple firstnames
+                            if len(split_list) > 1:
+                                name_seq += 1
+                            name_list = get_item_list(val, propreqinst[propty])
+
+                            if len(name_list) == 1:
+                                sitem = name_list.pop()
+                                if (propty not in item.claims
+                                        or not item_is_in_list(item.claims[propty], [sitem.getID()])):
+                                    ##pdb.set_trace()
+                                    claim = pywikibot.Claim(repo, propty)
+                                    claim.setTarget(sitem)
+                                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
+                                    pywikibot.warning('Add {}:{} ({}:{}) to {} ({})'
+                                                      .format(nameval[0], val, propty, sitem.getID(),
+                                                              objectname, qnumber))
+
+                                    if name_seq and SEQNRPROP not in claim.qualifiers:
+                                        # Add a sequence number
+                                        qualifier = pywikibot.Claim(repo, SEQNRPROP)
+                                        qualifier.setTarget(str(name_seq))
+                                        claim.addQualifier(qualifier, bot=wdbotflag, summary=transcmt)
+                            elif name_list:
+                                pywikibot.error('Ambiguous {} {} {}'
+                                                .format(nameval[0], val, [sitem.getID() for sitem in name_list]))
+                            else:
+                                pywikibot.error('Unknown {} {}'.format(nameval[0], val))
 
                 # Search all works where the person is author (as text)
                 work_list = get_item_with_prop_value(AUTHORNAMEPROP, objectname)
 
-                if work_list and not showcode:
+                if work_list and not showcode:  # Do not register authors when there are ambiguous names
                     # Having written books implies that the profession is author
                     if (PROFESSIONPROP not in item.claims
                             or not item_is_in_list(item.claims[PROFESSIONPROP], author_profession)):
@@ -607,35 +696,106 @@ def wd_proc_all_items():
                         pywikibot.warning('Add profession:author ({}:{}) to {} ({})'
                                           .format(PROFESSIONPROP, AUTHORINSTANCE, objectname, qnumber))
 
-                    ##authortoadd = True##
-                    for work in work_list:
+                    for workitem in work_list:
                         # Update all works to include the author as item number
-                        workitem = get_item_page(work)
-                        work = workitem.getID()
+                        work_title = ''
+                        lang = MULANG
 
-                        # Get the first work title
-                        for lang in workitem.labels:
-                            pywikibot.info('({}) {}:{}'.format(work, lang, workitem.labels[lang]))
-                            break
+                        # Get the first work title as a default
+                        for lang in main_languages:
+                            if lang in workitem.labels:
+                                work_title = workitem.labels[lang]
+                                break
+
+                        if not work_title:
+                            for lang in workitem.labels:
+                                work_title = get_item_headerworkitem.labels[lang]
+                                break
+
+                        # Overrule title
+                        if EDITIONTITLEPROP in workitem.claims:
+                            work_title_item = workitem.claims[EDITIONTITLEPROP][0].getTarget()
+                            work_title = work_title_item.text
+                            ### Possible error - missing language??
+                            lang = work_title_item.language
+
+                        # Overrule language
+                        if EDITIONLANGPROP in workitem.claims:
+                            work_lang_item = workitem.claims[EDITIONLANGPROP][0].getTarget()
+                            if WIKILANGPROP in work_lang_item.claims:
+                                lang = work_lang_item.claims[WIKILANGPROP][0].getTarget()
+
+                        if work_title:
+                            pywikibot.info('({}) {}:{}'.format(workitem.getID(), lang, work_title))
+                            if MULANG not in workitem.labels:
+                                # Assign missing mul label
+                                # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+                                workitem.labels[MULANG] = work_title
+                                try:
+                                    workitem.editLabels(labels=workitem.labels, summary=transcmt, bot=wdbotflag)
+                                except Exception as error:  # other exception to be used
+                                    ## Value longer than 240 bytes
+                                    pywikibot.error('Error processing work {}, {}'
+                                                    .format(workitem.getID(), error))
+                                    """
+(Q86046161) en:A European Renal Best Practice (ERBP) position statement on the Kidney Disease: Improving Global Outcomes (KDIGO) clinical practice guideline for the management of blood pressure in non-dialysis-dependent chronic kidney disease: an endorsement with some caveats for real-life application
+WARNING: API error modification-failed: Label must be no more than 250 characters long
+ERROR: Error processing Q55232541, Edit to page [[wikidata:Q86046161]] failed:
+modification-failed: Label must be no more than 250 characters long
+[param: id=Q86046161&action=wbeditentity&bot=1&baserevid=1516782562&summary=%23pwb+Create+person&data=%7B%22labels%22%3A+%7B%22en%22%3A+%7B%22language%22%3A+%22en%22%2C+%22value%22%3A+%22A+European+Renal+Best+Practice+%28ERBP%29+position+statement+on+the+Kidney+Disease%3A+Improving+Global+Outcomes+%28KDIGO%29+clinical+practice+guideline+for+the+management+of+blood+pressure+in+non-dialysis-dependent+chronic+kidney+disease%3A+an+endorsement+with%22%7D%2C+%22nl%22%3A+%7B%22language%22%3A+%22nl%22%2C+%22value%22%3A+%22A+European+Renal+Best+Practice+%28ERBP%29+position+statement+on+the+Kidney+Disease%3A+Improving+Global+Outcomes+%28KDIGO%29+clinical+practice+guideline+for+the+management+of+blood+pressure+in+non-dialysis-dependent+chronic+kidney+disease%3A+an+endorsement+with%22%7D%2C+%22mul%22%3A+%7B%22language%22%3A+%22mul%22%2C+%22value%22%3A+%22A+European+Renal+Best+Practice+%28ERBP%29+position+statement+on+the+Kidney+Disease%3A+Improving+Global+Outcomes+%28KDIGO%29+clinical+practice+guideline+for+the+management+of+blood+pressure+in+non-dialysis-dependent+chronic+kidney+disease%3A+an+endorsement+with+some+caveats+for+real-life+application%22%7D%7D%7D&assert=user&maxlag=5&format=json&token=98ad04801795e31924cd80f28cff637e670fa004%2B%5C;
+ messages: [{'name': 'wikibase-validator-label-too-long', 'parameters': ['250', 'A European Renal Best Practic...'], 'html': {'*': 'Het label mag niet meer dan 250 tekens lang zijn'}}];
+ servedby: mw-api-ext.codfw.main-856cf9b745-gpwm7;
+ help: See https://www.wikidata.org/w/api.php for API usage. Subscribe to the mediawiki-api-announce mailing list at &lt;https://lists.wikimedia.org/postorius/lists/mediawiki-api-announce.lists.wikimedia.org/&gt; for notice of API deprecations and breaking changes.]
+                                    """
 
                         # Reuse sequence number if available
                         author_seq = ''
                         author_source = []
                         for claim in workitem.claims[AUTHORNAMEPROP]:
                             if objectname == claim.getTarget():
-                                author_source = claim.getSources()
                                 if SEQNRPROP in claim.qualifiers:
                                     author_seq = claim.qualifiers[SEQNRPROP][0].getTarget()
+                                """
+                                if claim.sources:
+                                   #pdb.set_trace()
+                                    ##for source in claim.sources: # Loop through sources on claim
+                                    source = claim.sources[0]
+                                    for value in source.values():  # Loop through source values on claim
+                                        #print(value)
+                                        #hash_value = value[1].pop('hash')   ## Strip hash
+                                        #print(value)
+                                        sources.append(value) # add it to the list
+                                    #print(sources)
+                                """
+                                """
+[Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 28946522}, 'type': 'wikibase-entityid'}, 'hash': '6396cb3a98f87e9313469d693c6b95da7e14adb5'})]
+[Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://doi.org/10.1017%2FS026367510600010X', 'type': 'string'}, 'hash': '6396cb3a98f87e9313469d693c6b95da7e14adb5'})]
+
+https://www.wikidata.org/wiki/Wikidata:Pywikibot_-_Python_3_Tutorial/Setting_sources
+https://www.w3schools.com/python/gloss_python_remove_dictionary_items.asp
+                                """
+                                author_source = claim.getSources()
+
+                                if False and author_source:
+                                    # Include references, when applicable
+                                    # Not all refences tags should be duplicated...
+                                    """
+[OrderedDict([('P248', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 5412157}, 'type': 'wikibase-entityid'}, 'hash': '05c09aa976d67bbee50fa83c4ecd5d372e56555e'})]), ('P932', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P932', 'datatype': 'external-id', 'datavalue': {'value': '6733835', 'type': 'string'}, 'hash': '05c09aa976d67bbee50fa83c4ecd5d372e56555e'})]), ('P854', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=EXT_ID:31501474%20AND%20SRC:MED&resulttype=core&format=json', 'type': 'string'}, 'hash': '05c09aa976d67bbee50fa83c4ecd5d372e56555e'})]), ('P813', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P813', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002020-04-10T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}, 'hash': '05c09aa976d67bbee50fa83c4ecd5d372e56555e'})])])]
+
+[OrderedDict([('P248', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 5412157}, 'type': 'wikibase-entityid'}, 'hash': '76b91200d6800b4237a6bc755693bc5978029f76'})]), ('P698', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P698', 'datatype': 'external-id', 'datavalue': {'value': '33148311', 'type': 'string'}, 'hash': '76b91200d6800b4237a6bc755693bc5978029f76'})]), ('P854', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=EXT_ID:33148311%20AND%20SRC:MED&resulttype=core&format=json', 'type': 'string'}, 'hash': '76b91200d6800b4237a6bc755693bc5978029f76'})]), ('P813', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P813', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002020-11-06T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}, 'hash': '76b91200d6800b4237a6bc755693bc5978029f76'})])])]
+
+[OrderedDict([('P248', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 126285607}, 'type': 'wikibase-entityid'}, 'hash': '76dbb601d91e9f1443c9d6f52d818bd289d8f5cc'})])])]
+
+                                    """
+                                    ##pdb.set_trace()
+                                    for refseq in author_source:
+                                        del(refseq[1]['hash'])
+                                        for prop in refseq:
+                                            ref_value = refseq[prop][0].toJSON()['datavalue']['value']
+                                            pywikibot.info('{} ({})\t{}'.format(
+                                                    get_property_label(prop), prop, ref_value))
                                 break
 
-                        """
-Q98217518 en:Cumulative surgical morbidity in patients with multiple cerebellar and medullary hemangioblastomas
-Claim.fromJSON(DataSite("wikidata", "wikidata"), {'mainsnak': {'snaktype': 'value', 'property': 'P2093', 'datatype': 'string', 'datavalue': {'value': 'Christine Steiert', 'type': 'string'}}, 'type': 'statement', 'id': 'Q98217518$8554D611-ED01-4763-A05F-732BE98A254B', 'rank': 'normal', 'qualifiers': {'P1545': [{'snaktype': 'value', 'property': 'P1545', 'datatype': 'string', 'datavalue': {'value': '2', 'type': 'string'}, 'hash': '7241753c62a310cf84895620ea82250dcea65835'}]}, 'qualifiers-order': ['P1545'], 'references': [{'snaks': {'P248': [{'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 5412157}, 'type': 'wikibase-entityid'}}], 'P698': [{'snaktype': 'value', 'property': 'P698', 'datatype': 'external-id', 'datavalue': {'value': '32758916', 'type': 'string'}}], 'P854': [{'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=EXT_ID:32758916%20AND%20SRC:MED&resulttype=core&format=json', 'type': 'string'}}], 'P813': [{'snaktype': 'value', 'property': 'P813', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002020-08-10T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}}]}, 'snaks-order': ['P248', 'P698', 'P854', 'P813'], 'hash': 'a784119ff1a495da77d16ea495ef682bd031b78f'}]})
-
-[OrderedDict([('P248', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P248', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 5412157}, 'type': 'wikibase-entityid'}, 'hash': '34fcf5326193945785486d2488cfa4312ff09ddf'})]), ('P932', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P932', 'datatype': 'external-id', 'datavalue': {'value': '9102569', 'type': 'string'}, 'hash': '34fcf5326193945785486d2488cfa4312ff09ddf'})]), ('P854', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=PMCID:PMC9102569&resulttype=core&format=json', 'type': 'string'}, 'hash': '34fcf5326193945785486d2488cfa4312ff09ddf'})]), ('P813', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P813', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002022-06-08T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}, 'hash': '34fcf5326193945785486d2488cfa4312ff09ddf'})])])]
-
-volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P1545', 'datatype': 'string', 'datavalue': {'value': '2', 'type': 'string'}, 'hash': '7241753c62a310cf84895620ea82250dcea65835'})
-                        """
                         # Possibly found as author?
                         # Possibly found as editor?
                         # Possibly found as illustrator/photographer?
@@ -648,8 +808,9 @@ volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value
                                         authortoadd = False
                                         break
                                     elif item_has_label(book_author, objectname):
+                                        # Other item number with same name...
                                         authortoadd = False
-                                        pywikibot.warning('has conflicting author ({}) {} ({})'
+                                        pywikibot.warning('Author has conflicting ID ({}) {} ({})'
                                                           .format(prop, objectname, book_author.getID()))
                                         break
 
@@ -676,20 +837,67 @@ volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value
                                 pywikibot.warning('Add {}:{} ({}:{})'
                                                   .format(get_property_label(ORIGNAMEPROP), objectname,
                                                           ORIGNAMEPROP, qnumber))
-
-                            # Include references, when applicable
                             if author_source:
-                                # Not all refences should be duplicated...
-                                # Maybe better at item instance... (?)
-                                for prop in author_source[0]:
-                                    pywikibot.info('{} ({})\t{}'.format(
-                                            get_property_label(prop), prop,
-                                            author_source[0][prop][0].toJSON()['datavalue']['value']))
-                """
-###Need to reconstruct the source, otherwise AttributeError: 'str' object has no attribute 'on_item'
-                            if author_source[0]:
-                                claim.addSources(author_source[0], bot=wdbotflag, summary=transcmt)
-                """
+                                try:
+                                    claim.addSources(author_source, summary=transcmt + ' Add references')
+                                    pywikibot.warning('Add reference {}'.format(author_source))
+                                except Exception as error:  # other exception to be used
+                                    # 'list' object has no attribute 'on_item'
+                                    pywikibot.error('Error processing {}, {}'.format(qnumber, error))
+                                    pywikibot.info(author_source)
+
+                # Try to assign Commons Category
+                commonscat = objectname
+                page = pywikibot.Category(site, commonscat)
+                if not page.text:
+                    # Category page does not exist (yet)
+                    pywikibot.warning('Empty Wikimedia Commons category page: {}'
+                                      .format(commonscat))
+                    commonscat = ''
+                elif COMMONSCATREDIRECTRE.search(page.text):
+                    # Should only assign real Category pages
+                    pywikibot.warning('Redirect Wikimedia Commons category page: {}'
+                                      .format(commonscat))
+                    commonscat = ''
+                elif 'commonswiki' not in item.sitelinks:
+                    # Try to create a Wikimedia Commons Category sitelink
+                    try:
+                        sitedict = {'site': 'commonswiki', 'title': page.title()}
+                        item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink')
+                        status = 'Commons'
+                    except pywikibot.exceptions.OtherPageSaveError as error:
+                        # Category already assigned to other item
+                        # Get unique Q-numbers, skip duplicates (order not guaranteed)
+                        itmlist = set(QSUFFRE.findall(str(error)))
+                        if len(itmlist) > 0:
+                            itmlist.remove(qnumber)
+
+                        # Silently pass if Category page does not exist
+                        if len(itmlist) > 0:
+                            # Category was not assigned due to ambiguity
+                            pywikibot.info('Category {} ({}) conflicting with {}'
+                                           .format(commonscat, qnumber, itmlist))
+                            status = 'DupCat'	    # Conflicting category statement
+                            errcount += 1
+                            exitstat = max(exitstat, 10)
+                        commonscat = ''
+
+                if commonscat:
+                    if cbotflag and not WDINFOBOXRE.search(page.text):
+                        # Add Wikidata Infobox to Wikimedia Commons Category
+                        pageupdated = transcmt + ' Add Wikidata Infobox'
+                        page.text = '{{Wikidata Infobox}}\n' + re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
+                        pywikibot.warning('Add {} template to Commons {}'
+                                          .format('Wikidata Infobox', page.title()))
+                        page.save(summary=pageupdated, minor=True)  # No real content added
+                        status = 'Commons'
+
+                    # Add missing category statement
+                    if COMMONSCATPROP not in item.claims:
+                        claim = pywikibot.Claim(repo, COMMONSCATPROP)
+                        claim.setTarget(commonscat)
+                        item.addClaim(claim, bot=wdbotflag, summary=transcmt)
+
                 # Get nationality
                 nationality = get_prop_val_object_label(item, [NATIONALITYPROP])
 
@@ -699,7 +907,7 @@ volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value
             exitstat = max(exitstat, 130)
 
         except pywikibot.exceptions.MaxlagTimeoutError as error:  # Attempt error recovery
-            pywikibot.error('Error updating %s, %s' % (qnumber, error))
+            pywikibot.error('Error updating {}, {}'.format(qnumber, error))
             status = 'Error'	    # Handle any generic error
             errcount += 1
             exitstat = max(exitstat, 20)
@@ -710,11 +918,11 @@ volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value
 				# Consecutive technical errors accumulate the wait time, until the first successful transaction
 				# We limit the delay to a multitude of maxdelay seconds
             if errsleep > 0:    	# Allow the servers to catch up; slowdown the transaction rate
-                pywikibot.error('%d seconds maxlag wait' % (errsleep))
+                pywikibot.error('{:d} seconds maxlag wait'.format(errsleep))
                 time.sleep(errsleep)
 
         except Exception as error:  # other exception to be used
-            pywikibot.error('Error processing %s, %s' % (qnumber, error))
+            pywikibot.error('Error processing {}, {}'.format(qnumber, error))
             status = 'Error'	    # Handle any generic error
             errcount += 1
             exitstat = max(exitstat, 20)
@@ -734,7 +942,9 @@ volgnummer: Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value
         if verbose or status not in ['OK']:		# Print transaction results
             isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
             totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
-            pywikibot.info('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, qnumber, objectname, commonscat, alias, nationality, descr))
+            pywikibot.info('{:d}\t{}\t{:.3f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'
+                           .format(transcount, isotime, totsecs, status, qnumber, objectname,
+                                   commonscat, alias, nationality, descr[mainlang]))
 
 
 def show_help_text():
@@ -814,6 +1024,10 @@ PROPRE = re.compile(r'P[0-9]+')             # P-number
 QSUFFRE = re.compile(r'Q[0-9]+')            # Q-number
 ROMANRE = re.compile(r'^[a-z .,"()\'åáàâäāæǣçéèêëėíìîïıńñŋóòôöœøřśßúùûüýÿĳ-]{2,}$', flags=re.IGNORECASE)  # Roman alphabet
 
+# Commons Category + Wikidata infobox
+COMMONSCATREDIRECTRE = re.compile(r'{{Category|{{Cat disambig|{{Catredir|Cat-redirect', flags=re.IGNORECASE)    # Including: Category redirect
+WDINFOBOXRE = re.compile(r'{{Wikidata infobox', flags=re.IGNORECASE)
+
 target = {
     INSTANCEPROP: 'Q5',
     GENREPROP: 'Q6581097',      # Template value; will be overruled via parameter P1
@@ -824,6 +1038,7 @@ propreqinst = {
     FIRSTNAMEPROP: {'Q12308941', 'Q3409032', 'Q202444'},    # Firstname (will be overruled, based on P1)
     LASTNAMEPROP: {LASTNAMEINSTANCE, TOPONYMLASTNAMEINSTANCE, 'Q60558422', AFFIXLASTNAMEINSTANCE},      # Lastname, toponiem, compound, affixed
 }
+
 
 # Get language list
 main_languages = get_language_preferences()
@@ -877,11 +1092,14 @@ pywikibot.log('Readonly mode:\t%s' % readonly)
 pywikibot.log('Exit on fatal error:\t%s' % exitfatal)
 pywikibot.log('Error wait factor:\t%d' % errwaitfactor)
 
-# Connect to database
-transcmt = '#pwb Create person'	    	    # Wikidata transaction comment
-repo = pywikibot.Site('wikidata')  # Login to Wikibase instance
-repo.login()            # Must login
+# Connect to databases
+site = pywikibot.Site('commons')
+site.login()
+cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
 
+# This script requires a bot flag
+repo = site.data_repository()
+repo.login()            # Must login
 # This script requires a bot flag
 wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
 
@@ -897,7 +1115,13 @@ for propty in target:
                        .format(get_property_label(propty), get_item_header(targetx[propty].labels),
                                propty, target[propty]))
 
-# Get list of item numbers
+# Get language descriptions
+descr = {}
+instance_item = targetx[INSTANCEPROP]
+for lang in instance_item.labels:
+    descr[lang] = instance_item.labels[lang]              # Get language labels
+
+ # Get list of item numbers
 inputfile = sys.stdin.read()
 itemlist = sorted(set(inputfile.splitlines()))
 pywikibot.debug(itemlist)
