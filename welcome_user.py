@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 codedoc = """
-Welcome a list of Wikimedia users by generating a user talk page
+Welcome a list of Wikimedia users by generating or amending a user talk page
 
 You can choose the mainlang, the wmproject and the welcome text.
 
@@ -9,7 +9,7 @@ For each user in the list a signed user talk page is created, if it does not alr
 
     The user account must exist on the local wmproject.
     Moderators and bots are skipped.
-    User must have completed at least one edit.
+    The user must have completed at least one edit.
 
 Parameter:
 
@@ -20,7 +20,6 @@ Parameter:
     stdin:  List of usernames, one per line
 
     -c  Add a talk section, even if the user has 0 contributions.
-
 
 Options:
 
@@ -63,13 +62,15 @@ from datetime import datetime	    # now, strftime, delta time, total_seconds
 
 # Global variables
 modnm = 'Pywikibot welcome_user'    # Module name (using the Pywikibot package)
-pgmid = '2025-02-24 (gvp)'	        # Program ID and version
+pgmid = '2026-01-25 (gvp)'	        # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
 ENLANG = 'en'
 USERTALKNAMESPACE = 3
 TEMPLATENAMESPACE = 10
+
+veto_lang = {'en'}
 
 
 def get_item_header(header):
@@ -169,18 +170,24 @@ wmproject = 'wikipedia'
 
 # Get program parameters
 pgmnm = sys.argv.pop(0)
-#pdb.set_trace()
 
 # Overrule zero page edit filter
 force_create = False
-if sys.argv and sys.argv[0] == '-c':
-    sys.argv.pop(0)
-    force_create = True
 
-# Get language code
+while sys.argv and sys.argv[0][0] == '-':
+    if sys.argv[0] == '-c':
+        sys.argv.pop(0)
+        force_create = True
+    else:
+        pywikibot.error('Non-recognised qualifier {}'.format(sys.argv.pop(0)))
+
+# Get language or project code
 if sys.argv:
     mainlang = sys.argv.pop(0)
-    if len(mainlang) > 3:
+    if mainlang in veto_lang:
+        pywikibot.error("Language '{}' not allowed".format(mainlang))
+        sys.exit(20)
+    elif len(mainlang) > 3:
         wmproject = mainlang
 
 # Get Wikimedia family (project)
@@ -192,9 +199,11 @@ if sys.argv:
 # Login to the Wikimedia account
 site = pywikibot.Site(mainlang, wmproject)
 site.login()
-cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
 site_user = site.user()
 account = pywikibot.User(site, site_user)
+cbotflag = 'bot' in account.groups()
+#account_rights = account.rights()
+#pdb.set_trace()
 
 # Get user account creation date
 try:
@@ -206,13 +215,13 @@ except Exception:
 # This script requires a bot flag
 repo = site.data_repository()
 repo.login()
-wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
+#wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
 
-# Get default welcome message
 wpwelcomemessage = {}
-item = get_item_page('Q5611978')
 
 try:
+    # Get default welcome message
+    item = get_item_page('Q5611978')
     sitelink = item.sitelinks[mainlang + 'wiki']
     if (sitelink.namespace == TEMPLATENAMESPACE
             and str(sitelink.site.family) == 'wikipedia'):
@@ -221,16 +230,16 @@ except Exception as error:
     pywikibot.warning(error)
 
 # Overrule welcome message
-wpwelcomemessage['be'] = '{{welcome}} ~~~~'
-wpwelcomemessage['commons'] = '{{welcome}} ~~~~'
 wpwelcomemessage['en'] = '{{welcome-t}} ~~~~'
 wpwelcomemessage['fr'] = '{{Bienvenue nouveau|' + site_user + '|sign=~~~~}}'
 wpwelcomemessage['it'] = '{{subst:Benvenuto}} ~~~~'
 wpwelcomemessage['nl'] = '{{welkom}} ~~~~'
+
+wpwelcomemessage['commons'] = '{{welcome}} ~~~~'
 wpwelcomemessage['test'] = '{{w}} ~~~~'
 wpwelcomemessage['wikidata'] = '{{subst:welcome|~~~~}}'
 
-# Get welcome text
+# Get welcome text from parameter
 if sys.argv:
     wpwelcomemessage[mainlang] = sys.argv.pop(0)
 
@@ -238,7 +247,7 @@ if sys.argv:
 try:
     welcomepage = wpwelcomemessage[mainlang]
 except:
-    pywikibot.error('Language {} is not implemented'.format(mainlang))
+    pywikibot.error("Language '{}' is not implemented".format(mainlang))
     sys.exit(1)
 
 pywikibot.debug(pgmnm)
@@ -265,17 +274,47 @@ for user in item_list:
         wikiuser = pywikibot.User(site, user)
         wp = wikiuser.getprops()
 
+
         # Validate user account
-        if ('userid' in wp
-                and 'bot' not in wp['groups']
-                and 'bot' not in wp['rights']
-                and 'rollback' not in wp['rights']
+        """
+>>> wp['groups']
+['extendedconfirmed', '*', 'user', 'autoconfirmed']
+
+>>> wp['rights']
+
+Normal user
+
+['createaccount', 'read', 'edit', 'createpage', 'createtalk', 'viewmyprivateinfo', 'editmyprivateinfo', 'editmyoptions', 'urlshortener-create-url', 'centralauth-merge', 'move-rootuserpages', 'minoredit', 'editmyusercss', 'editmyuserjson', 'editmyuserjs', 'sendemail', 'applychangetags', 'changetags', 'viewmywatchlist', 'editmywatchlist', 'spamblacklistlog', 'abusefilter-blocked-external-domains-log', 'mwoauthmanagemygrants', 'patrol', 'move', 'collectionsaveasuserpage', 'collectionsaveascommunitypage', 'autoconfirmed', 'editsemiprotected', 'skipcaptcha', 'abusefilter-log-detail', 'abusefilter-view', 'abusefilter-log', 'transcode-reset', 'transcode-status',
+'oathauth-enable']
+
+Project organiser
+
+['campaignevents-enable-registration', 'campaignevents-organize-events', 'campaignevents-email-participants', 'extendedconfirmed',
+'createaccount', 'read', 'edit', 'createpage', 'createtalk', 'viewmyprivateinfo', 'editmyprivateinfo', 'editmyoptions', 'urlshortener-create-url', 'centralauth-merge', 'move-rootuserpages', 'minoredit', 'editmyusercss', 'editmyuserjson', 'editmyuserjs', 'sendemail', 'applychangetags', 'changetags', 'viewmywatchlist', 'editmywatchlist', 'spamblacklistlog', 'abusefilter-blocked-external-domains-log', 'mwoauthmanagemygrants', 'patrol', 'move', 'collectionsaveasuserpage', 'collectionsaveascommunitypage', 'autoconfirmed', 'editsemiprotected', 'skipcaptcha', 'abusefilter-log-detail', 'abusefilter-view', 'abusefilter-log', 'transcode-reset', 'transcode-status',
+'enrollasmentor']
+
+Create account???
+
+['extendedconfirmed', 'createaccount', 'read', 'edit', 'createpage', 'createtalk', 'viewmyprivateinfo', 'editmyprivateinfo', 'editmyoptions', 'urlshortener-create-url', 'centralauth-merge', 'vipsscaler-test', 'move-rootuserpages', 'minoredit', 'editmyusercss', 'editmyuserjson', 'editmyuserjs', 'sendemail', 'applychangetags', 'changetags', 'viewmywatchlist', 'editmywatchlist', 'spamblacklistlog', 'mwoauthmanagemygrants', 'patrol', 'move', 'collectionsaveasuserpage', 'collectionsaveascommunitypage', 'autoconfirmed', 'editsemiprotected', 'skipcaptcha', 'abusefilter-log-detail', 'abusefilter-view', 'abusefilter-log', 'ipinfo', 'ipinfo-view-basic', 'transcode-reset', 'transcode-status', 'enrollasmentor']
+
+Moderator
+
+['abusefilter-access-protected-vars', 'checkuser-temporary-account', 'checkuser-temporary-account-auto-reveal', 'ipinfo', 'ipinfo-view-full', 'oathauth-enable', 'abusefilter-hidden-log', 'abusefilter-log', 'abusefilter-log-detail', 'abusefilter-log-private', 'abusefilter-modify', 'abusefilter-modify-blocked-external-domains', 'abusefilter-modify-restricted', 'abusefilter-privatedetails-log', 'abusefilter-protected-vars-log', 'abusefilter-revert', 'abusefilter-view', 'abusefilter-view-private', 'apihighlimits', 'autoconfirmed', 'autopatrol', 'autoreviewrestore', 'bigdelete', 'block', 'blockemail', 'browsearchive', 'campaignevents-delete-registration', 'campaignevents-email-participants', 'campaignevents-enable-registration', 'campaignevents-organize-events', 'campaignevents-view-private-participants', 'centralauth-createlocal', 'centralauth-merge', 'centralnotice-admin', 'checkuser-log', 'checkuser-temporary-account-log', 'checkuser-temporary-account-no-preference', 'createaccount', 'createpage', 'createtalk', 'delete', 'deletechangetags', 'deletedhistory', 'deletedtext', 'deletelogentry', 'deleterevision', 'edit', 'editautopatrolprotected', 'editautoreviewprotected', 'editcontentmodel', 'editeditorprotected', 'editextendedsemiprotected', 'editinterface', 'editmyoptions', 'editprotected', 'editsemiprotected', 'editsitecss', 'editsitejs', 'editsitejson', 'edittrustedprotected', 'editusercss', 'edituserjs', 'edituserjson', 'extendedconfirmed', 'flow-create-board', 'flow-delete', 'flow-edit-post', 'flow-hide', 'flow-suppress', 'globalblock-exempt', 'globalblock-whitelist', 'gwtoolset', 'hideuser', 'import', 'importupload', 'ipblock-exempt', 'ipinfo-view-log', 'managechangetags', 'managementors', 'markbotedits', 'massmessage', 'mergehistory', 'move', 'move-categorypages', 'move-rootuserpages', 'move-subpages', 'movefile', 'movestable', 'mwoauthmanageconsumer', 'mwoauthsuppress', 'mwoauthviewprivate', 'mwoauthviewsuppressed', 'newsletter-create', 'newsletter-delete', 'newsletter-manage', 'newsletter-restore', 'noratelimit', 'nuke', 'oathauth-view-log', 'override-antispoof', 'pagetranslation', 'patrol', 'patrolmarks', 'protect', 'purge', 'renameuser', 'reupload', 'reupload-own', 'reupload-shared', 'review', 'rollback', 'setmentor', 'sfsblock-bypass', 'skipcaptcha', 'spamblacklistlog', 'stablesettings', 'suppressionlog', 'suppressredirect', 'tboverride', 'tboverride-account', 'templateeditor', 'titleblacklistlog', 'torunblocked', 'transcode-status', 'translate-import', 'translate-manage', 'translate-messagereview', 'unblockself', 'undelete', 'unwatchedpages', 'upload', 'upload_by_url', 'viewsuppressed', 'writeapi', 'read', 'abusefilter-privatedetails', 'checkuser', 'transcode-reset', 'urlshortener-create-url', 'viewmyprivateinfo', 'editmyprivateinfo', 'minoredit', 'editmyusercss', 'editmyuserjson', 'editmyuserjs', 'sendemail', 'applychangetags', 'changetags', 'viewmywatchlist', 'editmywatchlist', 'abusefilter-blocked-external-domains-log', 'mwoauthmanagemygrants', 'collectionsaveasuserpage', 'collectionsaveascommunitypage', 'enrollasmentor']
+
+        """
+        if ('userid' in wp  # user exists
+                and 'bot' not in wp['groups']   # skip bot
+                and 'bot' not in wp['rights']   # skip bot
+                and 'rollback' not in wp['rights']     # skip users with special rights
+                and 'viewsuppressed' not in wp['rights']     # skip users with special rights
                 and (wikiuser.editCount() > 0 or force_create)):
             page = pywikibot.Page(site, user, USERTALKNAMESPACE)    # User talk page
 
             if page.text:
-                # Should detect welcome message.
-                # Because there are many different welcome messages, we skip updating.
+                # Could possibly detect specific welcome messages.
+                # Because there are many different welcome messages, we simply skip updating.
+                # And there are other reasons why not create another welcome message...
+                # e.g. the Discussion page (welcome) could already be archived...
                 pywikibot.info('{}\thas {:d} edits'
                                .format(user, wikiuser.editCount()))
                 donecnt += 1
