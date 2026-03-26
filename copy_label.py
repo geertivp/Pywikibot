@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 
-codedoc = """
+codedoc = r"""
 copy_label.py - Amend Wikikdata, Wikimedia Commons, and Wikipedia; autocorrect, and register missing statements.
 
-This is a complex script, updating at the same time Wikidata, Wikimedia Commons, and Wikipedia.
+This is a complex script, updating Wikidata, Wikimedia Commons, and Wikipedia.
 
 It takes advantage of the integration and the interrelations amongst those platforms.
 
@@ -148,6 +148,7 @@ Principles:
 Author:
 
 	Geert Van Pamel, 2021-01-30, MIT License, User:Geertivp
+    https://github.com/geertivp/Pywikibot/blame/main/copy_label.py
 
 Documentation:
 
@@ -168,6 +169,9 @@ Documentation:
     https://byabbe.se/2020/09/15/writing-structured-data-on-commons-with-python
     https://doc.wikimedia.org/pywikibot/master/_modules/cosmetic_changes.html#CosmeticChangesToolkit.translateMagicWords
     https://www.mediawiki.org/wiki/Help:Magic_words
+
+    https://docs.python.org/3/library/re.html#re.match.start
+    https://docs.python.org/3/library/re.html#finding-all-adverbs
 
 Error handling:
 
@@ -292,7 +296,7 @@ from pywikibot.data import api
 
 # Global variables
 modnm = 'Pywikibot copy_label'      # Module name (using the Pywikibot package)
-pgmid = '2025-01-19 (gvp)'	        # Program ID and version
+pgmid = '2026-03-12 (gvp)'	        # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
@@ -306,7 +310,6 @@ forcecopy = False	    # Force copy
 lead_lower = False      # Leading lowercase
 lead_upper = False      # Leading uppercase
 overrule = False        # Overrule
-newfunctions = False    # New functions
 repeatmode = True       # Repeat mode
 repldesc = False        # Replicate instance description labels
 uselabels = False       # Use the language labels (disable with -l)
@@ -315,7 +318,7 @@ uselabels = False       # Use the language labels (disable with -l)
 
 # Technical configuration flags
 errorstat = True        # Show error statistics (disable with -e)
-exitfatal = False	    # Exit on fatal error (can be disabled with -p; please take care)
+exitfatal = True	    # Exit on fatal error (can be disabled with -p; please take care)
 shell = True		    # Shell available (command line parameters are available; automatically overruled by PAWS)
 
 # Technical parameters
@@ -345,11 +348,13 @@ transcmt = '#pwb Copy label'
 # Language settings
 ENLANG = 'en'
 MULANG = 'mul'
-MAINLANG = 'en:mul'     # mul can have non-Romain alphabeths; EN was tradional default value
-enlang_list = [ENLANG, 'en-gb', 'en-us', 'en-ca']
+MAINLANG = 'en'     # mul can have non-Romain alphabeths; EN was tradional default value; use : list to have multiple default languages
+historic_lang_codes = {MULANG, 'la'}
 
+MAX_ITEMS = 'max'        # Maximum items to return after search (maximum: 5000)
 PREFERRED_RANK = 'preferred'
 NORMAL_RANK = 'normal'
+DATEFMT = '%Y-%m-%d %H:%M:%S'
 
 # Namespaces
 # https://www.mediawiki.org/wiki/Help:Namespaces
@@ -373,12 +378,16 @@ AMBTPROP = 'P39'
 CHILDPROP = 'P40'
 FLAGPROP = 'P41'
 BORDERPEERPROP = 'P47'
+AUTHORPROP = 'P50'
 AUDIOPROP = 'P51'
+ARCHITECTPROP = 'P84'
 COATOFARMSPROP = 'P94'
 NOBLENAMEPROP = 'P97'
 NATIVELANGPROP = 'P103'
+PROFESSIONPROP = 'P106'
 SIGNATUREPROP = 'P109'
 MANAGEITEMPROP = 'P121'
+MANAGEDBYPROP = 'P126'
 PROPERTYOFPROP = 'P127'
 OPERATORPROP = 'P137'
 LOGOPROP = 'P154'
@@ -393,6 +402,7 @@ LOCATORMAPPROP = 'P242'
 SUBCLASSPROP = 'P279'
 FOREIGNSCRIPTPROP = 'P282'
 MAINSUBJECTCATPROP = 'P301'
+DAUGHTERORGPROP = 'P355'
 PARTOFPROP = 'P361'
 MEDIALANGPROP = 'P364'
 COMMONSCATPROP = 'P373'
@@ -404,11 +414,12 @@ INVERSEPROP = 'P461'
 MEMBEROFPROP = 'P463'
 CHAIRPROP = 'P488'
 COUNTRYORIGPROP = 'P495'
+CONTAINSPROP = 'P527'
 BIRTHDATEPROP = 'P569'
 DEATHDATEPROP = 'P570'
-CONTAINSPROP = 'P527'
 FOUNDINGDATEPROP = 'P571'
 DISSOLVDATEPROP = 'P576'
+PUBYEARPROP = 'P577'
 STARTDATEPROP = 'P580'
 ENDDATEPROP = 'P582'
 TIMEPROP = 'P585'
@@ -422,13 +433,14 @@ P585 {
     "timezone": 0
 }
 """
-QUALIFYFROMPROP = 'P642'            ## https://www.wikidata.org/wiki/Wikidata:WikiProject_Deprecate_P642
 ORGANISEDBYPROP = 'P664'
+PARTICIPANTPROP = 'P710'
 OPERATINGDATEPROP = 'P729'
 SERVICEENDDATEPROP = 'P730'
 LASTNAMEPROP = 'P734'
 FIRSTNAMEPROP = 'P735'
 PSEUDONYMPROP = 'P742'
+MOTHERORGPROP = 'P749'
 RELEVANTWORKPROP = 'P800'
 ##SUBJECTOFPROP = 'P'               ## Does not exist
 SUBJECTOFSTATEMENTPROP = 'P805'     ## Wrong inverse of MAINSUBJECTOFWORKPROP
@@ -440,14 +452,19 @@ VOICERECORDPROP = 'P990'
 SCANPROP = 'P996'
 JURISDICTIONPROP = 'P1001'
 DIRECTORPROP = 'P1037'
+FAMILYRELPROP = 'P1038'             ## Need invers relationship
 CAMERALOCATIONPROP = 'P1259'
 EARLYTIMEPROP = 'P1319'
+OPENCORPID = 'P1320'
 LATETIMEPROP = 'P1326'
 BUSINESSPARTNERPROP = 'P1327'
+PARTICIPANTINPROP = 'P1344'
 REPLACESPROP = 'P1365'
 REPLACEDBYPROP = 'P1366'
+OVERLAPWITHPROP = 'P1382'
 LANGKNOWPROP = 'P1412'
-MAINSUBJECTTEMPLATEPROP = 'P1423'
+MAINSUBJECTOFTEMPLATEPROP = 'P1423'
+MAINTEMPLATEPROP = 'P1424'
 GRAVEPROP = 'P1442'
 NICKNAMEPROP = 'P1449'
 COMMONSCREATORPROP = 'P1472'
@@ -456,7 +473,7 @@ BIRTHNAMEPROP = 'P1477'
 USEDBYPROP = 'P1535'
 ITEMCHARPROP = 'P1552'                  ## See also P1963
 NATIVENAMEPROP = 'P1559'
-COMMONSINSTPROP = 'P1612'
+COMMONSINSTITUTIONPROP = 'P1612'
 MAINSUBJECTPROP = 'P1629'
 WIKIDATAPROP = 'P1687'
 ORIGNAMELABELPROP = 'P1705'
@@ -469,6 +486,7 @@ HASPROPERTYPROP = 'P1830'
 NOTEQTOPROP = 'P1889'
 INSTANCEPROPLISTPROP = 'P1963'          ## See also P1552
 USESPROP = 'P2283'
+HASLEADERSHIPOVERPROP = 'P2389'         ## Deprecated value https://www.wikidata.org/wiki/Wikidata:WikiProject_Deprecate_P642
 MARIEDNAMEPROP = 'P2562'
 COLLAGEPROP = 'P2716'
 ICONPROP = 'P2910'
@@ -477,7 +495,9 @@ PARTITUREPROP = 'P3030'
 FLOORPLANPROP = 'P3311'
 KEYRELATIONPROP = 'P3342'
 SIBLINGPROP = 'P3373'
+BEKBONUMBER = 'P3376'
 NIGHTVIEWPROP = 'P3451'
+TVANUMBER = 'P3608'
 OBJECTROLEPROP = 'P3831'
 PANORAMAPROP = 'P4640'
 WINTERVIEWPROP = 'P5252'
@@ -497,6 +517,7 @@ COLORWORKPROP = 'P10093'
 REPRESENTATIONTYPEPROP = 'P12692'
 
 # Instances
+REALHUMANINSTANCE = {'Q5'}
 HUMANINSTANCE = {'Q5', 'Q15632617'}     # (fictive) human
 ESPERANTOLANGINSTANCE = 'Q143'
 PERSONPORTRAITINSTANCE = 'Q134307'
@@ -505,7 +526,12 @@ WIKIMEDIACATINSTANCE = 'Q4167836'
 WIKIMEDIAPROJECTINSTANCE = 'Q14204246'
 
 # Language independent
-alternative_person_names_props = [ARTISTNAMEPROP, PSEUDONYMPROP]
+alternative_person_names_props = [
+    # Order is important
+    ARTISTNAMEPROP,     # Requires schriftsysteem Latijns alfabet P282:Q8229
+    PSEUDONYMPROP,      # No attributes ???
+    NICKNAMEPROP,       # Has mandatory language
+]
 
 # Allows to extract GEO coordinates
 location_target = [
@@ -556,16 +582,14 @@ depict_item_type = {
     VOICERECORDPROP: 'Q53702817',
     VOYAGEBANPROP: 'Q22920576',
     WINTERVIEWPROP: 'Q54819662',
-    'P10544': 'Q1519903',       # uithangbord
-    'P11101': 'Q1979154',       # model
-    'P11702': 'Q6031215',       # informatiepaneel
-    'P1543': 'Q168346',         # monogram
+    ## Here follow numeric instance mapping
     'P158': 'Q162919',          # zegel
+    'P367': 'Q645745',          # astronomisch symbool
+    'P443': 'Q184377',          # uitspraak
+    'P1543': 'Q168346',         # monogram
     'P1846': 'Q97378230',       # verspreidingsgebied
     'P2713': 'Q12139782',       # dwarsdoorsnede
     'P3383': 'Q374821',         # filmposter
-    'P367': 'Q645745',          # astronomisch symbool
-    'P443': 'Q184377',          # uitspraak
     'P5962': 'Q1668447',        # zeilteken
     'P6718': 'Q193977',         # videoclip
     'P7415': 'Q80071',          # symbool
@@ -574,11 +598,15 @@ depict_item_type = {
     'P8667': 'Q96279156',       # tweelingstadbord
     'P8766': 'Q34941835',       # rang insigne
     'P9906': 'Q1640824',        # inscriptie
+    'P10544': 'Q1519903',       # uithangbord
+    'P11101': 'Q1979154',       # model
+    'P11702': 'Q6031215',       # informatiepaneel
 }
 
 # List of conflicting properties
 conflicting_statement = {
     ALMOSTEQTOPROP: NOTEQTOPROP,
+    OVERLAPWITHPROP: NOTEQTOPROP,
     EDITIONLANGPROP: MEDIALANGPROP,
     # others to be added
 }
@@ -594,6 +622,7 @@ mandatory_relation = {
     ALMOSTEQTOPROP: ALMOSTEQTOPROP,
     MARIAGEPARTNERPROP: MARIAGEPARTNERPROP,
     NOTEQTOPROP: NOTEQTOPROP,
+    OVERLAPWITHPROP: OVERLAPWITHPROP,
     PARTNERPROP: PARTNERPROP,
     SIBLINGPROP: SIBLINGPROP,
     INVERSEPROP: INVERSEPROP,
@@ -601,16 +630,17 @@ mandatory_relation = {
     # Inverse bidirectional
     CATEGORYRELTDTOLISTPROP: LISTRELTDTOCATEGORYPROP,
     CONTAINSPROP: PARTOFPROP,       # exclude MEMBEROFPROP
+    DAUGHTERORGPROP: MOTHERORGPROP,
     HASPROPERTYPROP: PROPERTYOFPROP,
     MAINCATEGORYPROP: MAINSUBJECTCATPROP,
+    MAINSUBJECTOFTEMPLATEPROP: MAINTEMPLATEPROP,
     ## MAINSUBJECTOFWORKPROP: SUBJECTOFPROP,
-    ##MAKERPROP: RELEVANTWORKPROP,  ## See also RELTDIMAGEPROP + ambiguity https://www.wikidata.org/wiki/Property:P800#P1629
-    MANAGEITEMPROP: OPERATORPROP,
     NEXTPROP: PREVIOUSPROP,
     ##ORGANISEDBYPROP: ,    # has inverse label
-    REPLACESPROP: REPLACEDBYPROP,
+    PARTICIPANTPROP: PARTICIPANTINPROP,
     PROMOTORPROP: PROMOVENDUSPROP,
     ##RELTDIMAGEPROP:
+    REPLACESPROP: REPLACEDBYPROP,
     USESPROP: USEDBYPROP,
 
     # Inverse unidirectional (mind the 1:M relationship)
@@ -618,7 +648,23 @@ mandatory_relation = {
     MOTHERPROP: CHILDPROP,
     PARENTPROP: CHILDPROP,
     WIKIDATAPROP: MAINSUBJECTPROP,
-    # others to be added
+    OPERATORPROP: MANAGEITEMPROP,
+    MANAGEDBYPROP: MANAGEITEMPROP,
+    ARCHITECTPROP: RELEVANTWORKPROP,
+    AUTHORPROP: RELEVANTWORKPROP,
+    MAKERPROP: RELEVANTWORKPROP,  ## See also RELTDIMAGEPROP + ambiguity https://www.wikidata.org/wiki/Property:P800#P1629
+    # others to be added; see next declaration
+}
+
+unidirectional_relation_prop = {CHILDPROP, MAINSUBJECTPROP, MANAGEITEMPROP, RELEVANTWORKPROP}
+
+# Add missing derived statements
+derived_statement = {
+    ## Strict order; is this order kept by Python?
+    # Unidirectional; an enterprise (vzw) does not necessarily have a TVA number
+    TVANUMBER: (BEKBONUMBER, '0', '', 0, '.', ''),      # BE BTW nummer zonder KBO nummer; any TVA numbers starting with 1?
+    BEKBONUMBER: (OPENCORPID, '0', 'be/', 0, '.', ''),  # Any KBO numbers starting with 1?
+    OPENCORPID: (BEKBONUMBER, 'be/', '', 3, '.', ''),   # Only process BE enterprises
 }
 
 # Exceptions: statements that are not bidirectional
@@ -627,10 +673,11 @@ likewise_relation = {
     CONTAINSPROP: {MEMBEROFPROP},
 }
 
-# List of missing statements
+# List of missing statements (for information only)
+# For information only
 missing_statement = {
-    COMMONSCREATORPROP: COMMONSCATPROP,     # Commons creator requires commonscat
-    COMMONSINSTPROP: COMMONSCATPROP,        # Commons institution requires commonscat
+    COMMONSCREATORPROP: COMMONSCATPROP,         # Commons creator requires commonscat
+    COMMONSINSTITUTIONPROP: COMMONSCATPROP,     # Commons institution requires commonscat
     # others to be added
 }
 
@@ -641,8 +688,10 @@ missing_statement = {
 # Languages with - should have special treatment with + 'wiki'
 all_languages = {'af', 'an', 'ast', 'ca', 'cy', 'da', 'de', 'en', 'es', 'fr', 'ga', 'gl', 'io', 'it', 'jut', 'nb', 'nl', 'nn', 'pms', 'pt', 'sc', 'sco', 'sje', 'sl', 'sq', 'sv'}
 
-# List of artificial languages
+# List of artificial languages (to be ignored)
 artificial_languages = {ESPERANTOLANGINSTANCE}
+
+native_related_languages_props = [BIRTHNAMEPROP, NATIVENAMEPROP, ORIGNAMELABELPROP, MARIEDNAMEPROP] ## NICKNAMEPROP is not official
 
 # Allow to copy the description from the instance
 copydesc_item_list = {
@@ -650,17 +699,28 @@ copydesc_item_list = {
     WIKIMEDIAPROJECTINSTANCE,   # https://www.wikidata.org/wiki/Q14734922
 }
 
+enterprise_type_list = {'Q4830453', 'Q6881511', 'Q83405', 'Q33506', 'Q43229', 'Q294422'}
+
 # All types of human names:
-# human, fictional human, personage,
-# last name, male first name, female first name, neutral first name, affixed family name, family
-human_type_list = {'Q5', 'Q15632617', 'Q95074',
-    'Q101352', 'Q12308941', 'Q11879590', 'Q3409032', 'Q66480858', 'Q8436'}
+# personage,
+# last name, affixed family name
+# male first name, female first name, neutral first name,
+# family
+human_type_list = {
+    'Q95074',
+    'Q101352', 'Q66480858',
+    'Q12308941', 'Q11879590', 'Q3409032',
+    'Q8436',
+}.union(HUMANINSTANCE)  # human, fictional human
 
 # Specific sequence to be aligned with sitelink_dict_list
+## We should remove this, since it is obsolete using property MAINTEMPLATEPROP
 instance_types_by_category = [
     HUMANINSTANCE,          # Human (is list!)
-    {'Q185187', 'Q38720'},  # Mills
-    # others to be added
+    {'Q185187', 'Q38720'},  # Mills ### obsolete ###
+        # https://www.wikidata.org/wiki/Q185187
+        # https://www.wikidata.org/wiki/Q38720
+        # https://www.wikidata.org/wiki/Q13383928
 ]
 
 # Filter the extension of nat_languages
@@ -723,6 +783,7 @@ lang_qnumbers = {'aeb': 'Q56240', 'aeb-arab': 'Q64362981', 'aeb-latn': 'Q6436298
 #'lfn': '',
 #'lzh': '',
 #'man': '',
+#'mos': '',
 #'mrj': '',
 #'nah': '',
 #'nia': '',
@@ -734,12 +795,16 @@ lang_qnumbers = {'aeb': 'Q56240', 'aeb-arab': 'Q64362981', 'aeb-latn': 'Q6436298
 #'pih': '',
 #'roa-tara': '',
 #'rsk': '',
+#'rki': '',
+#'rsk': '',
 #'rup': '',
 #'sa': '',
 #'sgs': '',
 #'stq': '',
+#'syl': '',
 #'tet': '',
 #'tdd': '',
+#'tig': '',
 #'tpi': '',
 #'vro': '',
 #'yue': '',
@@ -749,19 +814,8 @@ lang_qnumbers = {'aeb': 'Q56240', 'aeb-arab': 'Q64362981', 'aeb-latn': 'Q6436298
 # last name, affixed family name, compound, toponiem
 lastname_type_list = {'Q101352', 'Q66480858', 'Q60558422', 'Q17143070'}
 
-# Initial list of natural languages
-# Filled from the lang_qnumbers list above
-# Others will be added automatically during script execution
-nat_languages = {'Q150', 'Q188', 'Q652', 'Q1321', 'Q1860', 'Q7411'}
-
 # Accepted language scripts (e.g. Latin)
 script_whitelist = {'Q8229'}
-
-# Disabled wikis, ignored for processing
-unset_wikis = {
-    'cbkwiki',          # Bot only site
-    'zh_yuewiki',       # obsolete
-}
 
 # Languages using uppercase nouns
 ## Check if we could inherit this set from namespace or language properties??
@@ -769,6 +823,8 @@ upper_pref_lang = {'als', 'atj', 'bar', 'bat-smg', 'bjn', 'co?', 'dag', 'de', 'd
 
 # Keeps the space before <ref>
 veto_spacebeforeref = {'mlwiki', 'sqwiki'}
+
+## plwiki should be removed from most veto, except veto_sitelinks
 
 # Do not add authority templates
 veto_authority = {
@@ -778,7 +834,11 @@ veto_authority = {
 }
 
 # Avoid duplicate Commonscat templates (Commonscat automatically included from templates)
-veto_commonscat = {'azwiki', 'bawiki', 'fawiki',
+veto_commonscat = {'avkwiki',   # https://avk.wikipedia.org/w/index.php?title=Leonard_Nolens&diff=157461&oldid=157460
+    'azwiki', 'bawiki',
+    'eswiki',       # https://es.wikipedia.org/w/index.php?title=Iglesia_de_San_Juan_Bautista_(Bruselas)&diff=next&oldid=152340135
+    'fawiki',
+    #'hawiki',      # https://ha.wikipedia.org/w/index.php?title=Katy_Perry_%28prison_service%29&diff=620240&oldid=620239
     'huwiki',       # https://hu.wikipedia.org/w/index.php?title=Hernyóselyemfa&diff=26750576&oldid=26750556
                     # https://hu.wikipedia.org/w/index.php?title=Plakett&diff=next&oldid=26747356 (Wrong Commonscat placement)
     'hywiki', 'nowiki',
@@ -806,13 +866,23 @@ veto_defaultsort = {
     'trwiki',       # WARNING: API error abusefilter-disallowed: abusefilter-sortname: no DEFAULTSORT statements at all
 }
 
+# No automatic images
+veto_images = {
+    'arzwiki',
+}
+
 # Infobox without Wikidata functionality (to avoid empty emptyboxes)
 veto_infobox = {
-    'afwiki', 'azbwiki', 'enwiki', 'hrwiki',
+    'afwiki',
+    'arzwiki',      ### https://arz.wikipedia.org/w/index.php?title=ادموند_بورك_التالت&diff=12843940&oldid=12340100 (too complex templates; not registered in Wikidata)
+    'azbwiki',
+    'enwiki',       # English Wikipedia doesn't like Infoboxes
+    'hrwiki',
     'idwiki',       # https://id.wikipedia.org/w/index.php?title=Chris_Wright_%28eksekutif_energi%29&diff=26538965&oldid=26538951
     'iswiki', 'jawiki',
     'kgwiki',       # https://kg.wikipedia.org/w/index.php?title=Rachel_Reeves&diff=next&oldid=45956 (LUA syntax error)
-    'kowiki', 'kuwiki', 'mkwiki', 'mlwiki', 'mrwiki', 'ndswiki', 'plwiki', 'scowiki', 'shwiki', 'sqwiki', 'trwiki',
+    'kowiki', 'kuwiki', 'mkwiki', 'mlwiki', 'mrwiki', 'ndswiki',
+    'plwiki', 'scowiki', 'shwiki', 'sqwiki', 'trwiki',
     'swwiki',       # https://sw.wikipedia.org/w/index.php?title=Paul_Ryan&diff=1361906&oldid=1361905
     'ugwiki',       # https://ug.wikipedia.org/w/index.php?title=مايك_پومپىئو&diff=169937&oldid=169936
     'urwiki',       # Empty infobox https://ur.wikipedia.org/wiki/تبادلۂ_خیال_صارف:Geertivp
@@ -823,7 +893,7 @@ veto_infobox = {
 }
 
 # Veto languages
-# Skip non-standard character encoding; see also ROMANRE (other name rules)
+# Skip non-standard character encoding; see also NONROMANRE (other name rules)
 # see https://en.wikipedia.org/wiki/Wikipedia:Naming_conventions_(Cyrillic)
 # Not to be confused with veto_sitelinks and unset_wikis
 ### Should it be - or _ ??
@@ -834,29 +904,33 @@ veto_languages_id = {'Q7737', 'Q8798'}
 
 # List of languages wanting to use the <references /> tag
 # https://no.wikipedia.org/w/index.php?title=Suzanne_Ciani&diff=next&oldid=23671158
-veto_references = {'bgwiki', 'cswiki', 'fywiki', 'itwiki', 'nowiki', 'svwiki'}
+veto_references = {'bgwiki', 'cswiki', 'fywiki', 'idwiki', 'itwiki', 'nowiki', 'svwiki'}
 
 # List of Wikipedia's that do not support bot updates (for different reasons)
 veto_sitelinks = {
-    # Requires CAPTCHA => blocking bot scripts (?)
+    ## No automatic global bot flag
+    'alswiki', 'arwiki', 'cswiki', 'fawiki', 'ffrwiki', 'gucwiki', 'gurwiki', 'huwiki', 'kowiki', 'lawiki', 'nvwiki', 'pflwiki', 'vecwiki', 'wuuwiki', 'zh-yuewiki', 'zhwiki',
+
+    ## Requires CAPTCHA => blocking bot scripts (?)
     'cawiki', 'ckbwiki', 'eswiki', 'fawiki', 'jawiki', 'ptwiki', 'ruwiki', 'simplewiki', 'ttwiki', 'viwiki', 'wuuwiki', 'zhwiki',
 
-    # Blocked (requires mandatory bot flag)
+    ## Blocked (requires mandatory bot flag)
     'arwiki',       # https://ar.wikipedia.org/wiki/%D9%86%D9%82%D8%A7%D8%B4_%D8%A7%D9%84%D9%85%D8%B3%D8%AA%D8%AE%D8%AF%D9%85:GeertivpBot
     'dawiki',       # https://da.wikipedia.org/w/index.php?title=Speciel:Loglister/block&page=User%3AGeertivpBot
     'elwiki',       # Requires wikibot flag
     'itwiki',       # https://it.wikipedia.org/wiki/Special:Log/block?page=User:GeertivpBot
+    'ltwiki',       # https://lt.wikipedia.org/w/index.php?title=Specialus:Sąrašas&logid=746888
     'plwiki',       # https://meta.wikimedia.org/wiki/User_talk:Geertivp#c-Msz2001-20240802153000-Blocked_your_bot_on_plwiki
     'rowiki',       # https://ro.wikipedia.org/w/index.php?title=Special:Jurnal/block&page=User%3AGeertivpBot
     'slwiki',       # Requires wikibot flag
     'svwiki',       # Infobox
     'yuewiki',      # https://zh-yue.wikipedia.org/w/index.php?title=Special:日誌&logid=499083
-    'zh_yuewiki',   # https://zh-yue.wikipedia.org/w/index.php?title=Special:日誌/block&page=User%3AGeertivpBot
+    'zh-yuewiki',   # https://zh-yue.wikipedia.org/w/index.php?title=Special:日誌/block&page=User%3AGeertivpBot
 
-    # Unblocked (after an issue was fixed)
+    ## Unblocked (after an issue was fixed)
     #'nowiki',      # https://no.wikipedia.org/wiki/Brukerdiskusjon:GeertivpBot
 
-    # Have to proactively request a bot flag
+    ## Have to proactively request a bot flag
     'dewiki',       # https://de.wikipedia.org/w/index.php?title=Spezial:Logbuch/block&page=User%3AGeertivpBot
                     # https://de.wikipedia.org/wiki/Benutzer_Diskussion:GeertivpBot#c-Aspiriniks-20231231204800-Geertivp-20230830114600
                     # https://de.wikipedia.org/wiki/Wikipedia:Administratoren/Notizen#Benutzer:GeertivpBot
@@ -869,12 +943,12 @@ veto_sitelinks = {
     'ukwiki',       # https://uk.wikipedia.org/wiki/%D0%9E%D0%B1%D0%B3%D0%BE%D0%B2%D0%BE%D1%80%D0%B5%D0%BD%D0%BD%D1%8F_%D0%BA%D0%BE%D1%80%D0%B8%D1%81%D1%82%D1%83%D0%B2%D0%B0%D1%87%D0%B0:Geertivp#Requests_for_bot_flag
     'vepwiki',      # https://meta.wikimedia.org/wiki/User_talk:Geertivp#Bot_edits
 
-    # Bot approval pending
+    ## Bot approval pending
     # https://meta.wikimedia.org/wiki/User_talk:Geertivp#c-01miki10-20230714212500-Please_request_a_bot_flag_%40_fiwiki
     'fiwiki',       # https://fi.wikipedia.org/wiki/Käyttäjä:GeertivpBot
                     # https://fi.wikipedia.org/wiki/Keskustelu_k%C3%A4ytt%C3%A4j%C3%A4st%C3%A4:GeertivpBot
 
-    # Temporary problem waiting for a code change
+    ## Temporary problem waiting for a code change
     #'lbwiki',
 
     # Unidentified problem
@@ -882,8 +956,7 @@ veto_sitelinks = {
 
     #'be_taraskwiki',   # instantiated using different code "be-x-old" ??
 
-    # Non-issues (temporary or specific problems)
-
+    ## Non-issues (temporary or specific problems)
     # 'cswiki',
     # WARNING: Add Commonscat Fremantle Highway (ship, 2013) to cswiki
     # ERROR: Error processing Q121093616, Edit to page [[cs:MV Fremantle Highway]] failed:
@@ -898,19 +971,20 @@ veto_sitelinks = {
 
 # List of recognized infoboxes
 # Using this list, language templates infoboxlist[x] are automatically generated
+# => should be phased out and replaced by preferred infobox from MAINTEMPLATEPROP
 sitelink_dict_list = [
 # Required to be in strict sequence
 # See also instance_types_by_category (2 elements)
-    'Q6249834',         # infoboxlist[0] Infobox person (to generate Infobox template on Wikipedia), 39 s, 68 s
-    'Q13383928',        # infoboxlist[1] Infobox Infobox windmills https://www.wikidata.org/wiki/Special:EntityPage/Q47517487
-    ## Caveat: when adding elements, also extend instance_types_by_category
+    'Q6249834',         ## infoboxlist[0] Infobox person (to generate Infobox template on Wikipedia), 39 s, 68 s    https://www.wikidata.org/wiki/Q5#P1424
+    'Q13383928',        ## obsolete ### infoboxlist[1] Infobox Infobox windmills    https://www.wikidata.org/wiki/Q38720#P1424
+    ## Caveat: when inserting elements, also extend instance_types_by_category
 
 # Commonscat included - strict sequence
-    'Q47517487',        # infoboxlist[2] Wikidata infobox
+    'Q47517487',        # infoboxlist[2] Generic Wikidata Infobox ## Caveat: needs to be contiguous with previous list...
     'Q17534637',        # infoboxlist[3] Infobox person Wikidata (overrule)
 
     ## Caveat: strict sequence
-    # Keep the list builtin_commonscat alligned!
+    # Keep the list builtin_commonscat alligned for following list!
 
     # plwiki specific
     # No Commonscat for Infobox buildings
@@ -963,6 +1037,8 @@ sitelink_dict_list = [
     'Q6055178',         # Infobox park
     'Q6175815',         # Geobox
     'Q6190581',         # Infobox organization
+    'Q5625028',         # Infobox enterprise
+    'Q10584970',        # Infobox bank https://tg.wikipedia.org/w/index.php?title=Revolut&diff=1458812&oldid=1389811
     'Q6434929',         # Multiple image, 9 s
     'Q6630855',         # Infobox food, 3 s
     'Q10581765',        # Infobox monastery https://hy.wikipedia.org/w/index.php?title=Սոլովեցի_մենաստան&diff=8940982&oldid=7102219
@@ -980,6 +1056,13 @@ sitelink_dict_list = [
 # Redundant language codes rue, sv; .update() overrules => which one to give preference?
 # https://favtutor.com/blogs/merge-dictionaries-python
     'Q20702632',        # Databox (nl; still experimental) => seems to work pretty well... {{#invoke:Databox|databox}}, 1 s
+
+## Duplicate Infobox persoon
+# https://www.wikidata.org/wiki/Q6249834 Normal one
+# https://eo.wikipedia.org/w/index.php?title=Chris_Connor&diff=9319406&oldid=7907930
+# https://www.wikidata.org/wiki/Talk:Q15053809
+    'Q15053809',        # This should be merged with Q6249834 (Infobox person)
+
 ]
 
 ## Caveat: Keep the sitelink_dict_list alligned!
@@ -991,9 +1074,24 @@ builtin_commonscat = {
 }
 
 
+def fatal_error(errcode, errtext):
+    """
+    A fatal error has occurred.
+    We will print the error message, and exit with an error code.
+    """
+    global exitstat
+
+    exitstat = max(exitstat, errcode)
+    pywikibot.critical(errtext)
+    if exitfatal:		# unless we ignore fatal errors
+        sys.exit(exitstat)
+    else:
+        pywikibot.warning('Proceed after fatal error')
+
+
 def get_canon_name(baselabel) -> str:
     """
-    Get standardised name
+    Get canonical name
 
     :param baselabel: input label
     :return cononical label
@@ -1014,7 +1112,7 @@ def get_canon_name(baselabel) -> str:
     if colonloc < 0 and commaloc:
         baselabel = baselabel[commaloc.start() + 1:] + ' ' + baselabel[:commaloc.start()]
         baselabel = baselabel.replace(',', ' ')     # Multiple ,
-    baselabel = ' '.join(baselabel.split())         # Remove redundant spaces
+    baselabel = ' '.join(baselabel.split()).strip() # Remove redundant spaces
     return baselabel
 
 
@@ -1036,9 +1134,14 @@ def get_item_header(header):
             if lang in header:
                 return header[lang]
 
-        # Return any other label
+        # Return mul label when present
+        if MULANG in header:
+            return header[MULANG]
+
+        # Return any other label (no specific order?)
         for lang in header:
             return header[lang]
+    # No label present
     return '-'
 
 
@@ -1087,8 +1190,9 @@ def get_item_page(qnumber) -> pywikibot.ItemPage:
             # Resolve a single redirect error
             item = item.getRedirectTarget()
             label = get_item_header(item.labels)
-            pywikibot.warning('Item {} ({}) redirects to {}'
-                              .format(label, qnumber, item.getID()))
+            pywikibot.warning('Item {} ({}) redirects to {}'.format(
+                              label, qnumber, item.getID()))
+            ##pdb.set_trace()
             qnumber = item.getID()
         except Exception as error:
             pywikibot.error('{} ({}), {}'.format(item, qnumber, error))      # Site error
@@ -1102,8 +1206,9 @@ def get_item_page(qnumber) -> pywikibot.ItemPage:
         ## Should fix the sitelinks
         item = item.getRedirectTarget()
         label = get_item_header(item.labels)
-        pywikibot.warning('Item {} ({}) redirects to {}'
-                          .format(label, qnumber, item.getID()))
+        pywikibot.warning('Item {} ({}) redirects to {}'.format(
+                          label, qnumber, item.getID()))
+        ##pdb.set_trace()
         qnumber = item.getID()
 
     return item
@@ -1114,7 +1219,7 @@ def get_item_label_dict(qnumber) -> {}:
     Get all Wikipedia labels in all languages for a Qnumber.
 
     :param qnumber: list number
-    :return: label dict set(including aliases; index by ISO language code)
+    :return: label dict set(including aliases; index by ISO language code). The first item for each language is the label.
 
     Example of usage:
         Image namespace name (Q478798).
@@ -1123,6 +1228,10 @@ def get_item_label_dict(qnumber) -> {}:
     prevnow = datetime.now()
     labeldict = {}
     item = get_item_page(qnumber)
+    label = get_item_header(item.labels)
+    if qnumber != item.getID():
+        pywikibot.warning('Item {} ({}) redirects to {}'.format(label, qnumber, item.getID()))
+        qnumber = item.getID()
 
     # Get item labels (we assume there is always a label)
     for lang in item.labels:
@@ -1131,25 +1240,25 @@ def get_item_label_dict(qnumber) -> {}:
     # Append list of aliases in sequence after the main label
     for lang in item.aliases:
         for val in item.aliases[lang]:
-            try:
+            if lang in labeldict:
                 if val not in labeldict[lang]:
                     labeldict[lang].append(val)
-            except:
+            else:
                 # Alias without item label
                 labeldict[lang] = [val]
 
     # Refresh the timestamp to time this transaction
     now = datetime.now()
-    isotime = now.strftime("%Y-%m-%d %H:%M:%S")     # Needed to format output
-    pywikibot.log('{}\tLoading item labels for {} ({}) took {:d} seconds'
-                  .format(isotime, get_item_header(labeldict)[0], qnumber,
-                          int((now - prevnow).total_seconds())))
+    isotime = now.strftime(DATEFMT)     # Needed to format output
+    pywikibot.info('{}\tLoading local language labels for {} ({}) took {:d} seconds'.format(
+                   isotime, label, qnumber, int((now - prevnow).total_seconds())))
     return labeldict
 
 
 def get_dict_using_statement_value(prop: str, propval: str, key: str) -> {}:
     """
     Get list of items that have a property/value statement
+    (not used any more)
 
     :param prop: Property ID (string)
     :param propval: Property value (Q-number string)
@@ -1178,13 +1287,12 @@ def get_dict_using_statement_value(prop: str, propval: str, key: str) -> {}:
     item_list = {}                      # Empty dict
     params = {'action': 'query',        # Statement search
               'list': 'search',
-              'srsearch': prop + ':' + propval,
               'srwhat': 'text',
+              'srsearch': prop + ':' + propval,
               'format': 'json',         # Important
               'srlimit': 'max'}         # Should be reasonable value
     request = api.Request(site=repo, parameters=params)
     result = request.submit()
-
 
     if 'query' in result and 'search' in result['query']:
         # Loop though items
@@ -1196,8 +1304,8 @@ def get_dict_using_statement_value(prop: str, propval: str, key: str) -> {}:
                 if key in item.claims and prop in item.claims:
                     for claim in item.claims[prop]:
                         if claim.getTarget().getID() == propval:
-                            for lc in item.claims[key]:
-                                wmlangcd = lc.getTarget()
+                            for seq in item.claims[key]:
+                                wmlangcd = seq.getTarget()
                                 if not wmlangcd:
                                     # Ignore unregistered value
                                     # https://www.wikidata.org/wiki/Q67093214#P424
@@ -1207,16 +1315,16 @@ def get_dict_using_statement_value(prop: str, propval: str, key: str) -> {}:
                                     item_list[item.getID()] = wmlangcd
                                 elif len(item_list[item.getID()]) > len(wmlangcd):
                                     # Subvalues
-                                    pywikibot.error('Language code {} different from {} for {}'
-                                                    .format(item_list[item.getID()], wmlangcd, item.getID()))
+                                    pywikibot.error('Language code {} different from {} for {}'.format(
+                                                    item_list[item.getID()], wmlangcd, item.getID()))
                                     item_list[item.getID()] = wmlangcd
                                 elif item_list[item.getID()] != wmlangcd:
                                     # Ambigous values
-                                    pywikibot.error('Language code {} different from {} for {}'
-                                                    .format(wmlangcd, item_list[item.getID()], item.getID()))
+                                    pywikibot.error('Language code {} different from {} for {}'.format(
+                                                    wmlangcd, item_list[item.getID()], item.getID()))
                             now = datetime.now()	        # Refresh the timestamp to time the following transaction
-                            pywikibot.log('Language {} {} took {:d} seconds'
-                                          .format(wmlangcd, item.getID(), int((now - deltanow).total_seconds())))
+                            pywikibot.log('Language {} {} took {:d} seconds'.format(
+                                          wmlangcd, item.getID(), int((now - deltanow).total_seconds())))
                             deltanow = now
                             break
             except Exception as error:
@@ -1232,9 +1340,9 @@ def get_dict_using_statement_value(prop: str, propval: str, key: str) -> {}:
 
     # Refresh the timestamp to time the current transaction
     now = datetime.now()
-    isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Needed to format output
-    pywikibot.log('{}\tLoading language codes took {:d} seconds for {:d} items'
-                  .format(isotime, int((now - prevnow).total_seconds()), len(item_list)))
+    isotime = now.strftime(DATEFMT) # Needed to format output
+    pywikibot.log('{}\tLoading language codes took {:d} seconds for {:d} items'.format(
+                  isotime, int((now - prevnow).total_seconds()), len(item_list)))
 
     # Convert set to list
     pywikibot.log(item_list)
@@ -1261,10 +1369,14 @@ def get_wikipedia_sitelink_template_dict(qnumber) -> {}:
     # Optimisation: allow for fast shortcuts for known/ignored Wikipedias
     global unset_wikis
 
-    # Start of transaction
+    # Start transaction + timer
     prevnow = datetime.now()
     sitedict = {}
     item = get_item_page(qnumber)
+    label = get_item_header(item.labels)
+    if qnumber != item.getID():
+        pywikibot.warning('Item {} ({}) redirects to {}'.format(label, qnumber, item.getID()))
+    qnumber = item.getID()
 
     # Get target sitelinks
     for sitelang in item.sitelinks:
@@ -1287,10 +1399,12 @@ def get_wikipedia_sitelink_template_dict(qnumber) -> {}:
 
     # Refresh the timestamp to time the current transaction
     now = datetime.now()
-    isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Needed to format output
-    pywikibot.log('{}\tLoading {} ({}) took {:d} seconds for {:d} items'
-                  .format(isotime, get_item_header(item.labels), qnumber,
-                          int((now - prevnow).total_seconds()), len(sitedict)))
+    delta_time = (now - prevnow).total_seconds()
+    if delta_time > 5.0:
+        isotime = now.strftime(DATEFMT) # Needed to format output
+        pywikibot.info('{}\tLoading {} ({}) took {:d} seconds for {:d} items'.format(
+                    isotime, label, qnumber,
+                    int(delta_time), len(sitedict)))
     return sitedict
 
 
@@ -1314,6 +1428,7 @@ def get_language_preferences() -> []:
     mainlang = os.getenv('LANGUAGE',
                          os.getenv('LC_ALL',
                          os.getenv('LANG', MAINLANG))).split(':')
+    # Could also be -
     main_languages = [lang.split('_')[0] for lang in mainlang]
 
     # Cleanup language list
@@ -1328,7 +1443,7 @@ def get_language_preferences() -> []:
     return main_languages
 
 
-def get_prop_val_object_label(item, proplist) -> str:
+def get_item_prop_val_object_label(item, proplist) -> str:
     """
     Get property value label
 
@@ -1340,22 +1455,22 @@ def get_prop_val_object_label(item, proplist) -> str:
     for prop in proplist:
         if prop in item.claims:
             for claim in item.claims[prop]:
-                val = claim.getTarget()
+                val = claim.getTarget()     ## Might need get() and redirect logic
                 try:
                     item_prop_val += get_item_header(val.labels) + '/'
                 except Exception as error:
                     pywikibot.error(error)      # Site error
             break
-    return item_prop_val
+    return item_prop_val[:-1]
 
 
-def get_prop_val_year(item, proplist) -> str:
+def get_item_prop_val_year(item, proplist) -> str:
     """
-    Get death date (normally only one)
+    Get dates from claims
 
     :param item: Wikidata item
     :param proplist: Search list of date properties
-    :return: first matching date
+    :return: list of dates
     """
     item_prop_val = ''
     for prop in proplist:
@@ -1367,7 +1482,7 @@ def get_prop_val_year(item, proplist) -> str:
                 except Exception as error:
                     pywikibot.error(error)      # Site error
             break
-    return item_prop_val
+    return item_prop_val[:-1]
 
 
 def get_sdc_item(sdc_data) -> pywikibot.ItemPage:
@@ -1394,20 +1509,23 @@ def is_foreign_lang_label(lang_list) -> str:
     Check if foreign language
     """
     for val in lang_list:
-        if not ROMANRE.search(val):
+        if NONROMANRE.search(val):
             return val
     return ''
 
 
-def is_veto_lang_label(lang_list) -> bool:
+def item_has_veto_lang_label(item) -> bool:
     """
     Check if language is blacklisted
     """
-    for claim in lang_list:
-        val = claim.getTarget()
-        if (val.language in veto_languages
-                or not ROMANRE.search(val.text)):
-            return True
+    for propty in native_related_languages_props:
+        if propty in item.claims:
+            for claim in item.claims[propty]:
+                baselabel = claim.getTarget()
+                # https://www.geeksforgeeks.org/python/re-fullmatch-function-in-python
+                if (baselabel.language in veto_languages
+                        or NONROMANRE.search(baselabel.text)):
+                    return True
     return False
 
 
@@ -1439,7 +1557,7 @@ def item_is_in_list(statement_list, itemlist) -> str:
     for claim in statement_list:
         try:
             val = claim.getTarget()
-            if isinstance(val, pywikibot.page._wikibase.ItemPage):
+            if isinstance(val, pywikibot.ItemPage):
                 val = val.getID()
             ###elif: possible other data types
             if val in itemlist:
@@ -1454,7 +1572,7 @@ def matching_claims(statement_list1, statement_list2):
 
     :param statement_list1:  Statement list
     :param statement_list2:  Reference statement list
-    :return: Matching item
+    :return: Matching item, or None
     """
     for claim in statement_list1:
         try:
@@ -1465,24 +1583,6 @@ def matching_claims(statement_list1, statement_list2):
         except Exception as error:
             pywikibot.error(error)      # Site error (e.g. missing data value)
     return None
-
-
-def item_not_in_list(statement_list, itemlist) -> str:
-    """
-    Verify if any statement target is not in the itemlist
-
-    :param statement_list:  Statement list
-    :param itemlist:        List of values
-    :return: Non-matching item or empty string
-    """
-    for claim in statement_list:
-        try:
-            val = claim.getTarget().getID()
-            if val not in itemlist:
-                return val
-        except Exception as error:
-            pywikibot.error(error)      # Site error
-    return ''
 
 
 def property_is_in_list(statement_list, proplist) -> str:
@@ -1523,6 +1623,7 @@ Structure of the Wikimedia Commons structured data statements:
     depict_statement = {
         'claims': [{
             'type': 'statement',
+            'rank': 'normal',               # overwritten
             'mainsnak': {
                 'snaktype': 'value',
                 'property': DEPICTSPROP,    ## other property for subclasses?
@@ -1538,25 +1639,48 @@ Structure of the Wikimedia Commons structured data statements:
         }]
     }
 
-    item_label = get_item_header(item.labels)
+    # Search Wikimedia Commons SDC P180 statements
+    params = {'action': 'query',
+              'list': 'search',         # Mediafile search
+              'srnamespace': FILENAMESPACE,         # File namespace
+              'srsearch': 'haswbstatement:' + DEPICTSPROP + '=' + item.getID(), # Trigger Wikimedia Commons Cirrus search (AI-like search)
+              'srwhat': 'text',         ## What does this mean?
+              'srprop': 'size',         # Limit returned data (save memory)
+              'format': 'json',         # Return format
+              'srlimit': MAX_ITEMS}     # Should be reasonable value (sorted by decreasing relevance, i.e. PDF files at the end)
+    request = api.Request(site=site, parameters=params)
+    result = request.submit()
 
-    if SUBCLASSPROP in item.claims:
+    # Get the list of media files
+    page_list = set()
+    item_label = get_item_header(item.labels)
+    if 'query' in result and 'search' in result['query']:
+        # Loop though items
+        for row in result['query']['search']:
+            # Get media via file name
+            subject = row['title']
+            media_page = pywikibot.FilePage(site, subject)
+            page_list.add(media_page)
+
+    if INSTANCEPROP not in item.claims:
+        pywikibot.warning('Missing instance (P31) for {} ({})'
+                          .format(item_label, item.getID()))
+    elif SUBCLASSPROP in item.claims:
         ## We need other logic for subclasses
         # https://commons.wikimedia.org/wiki/File:Oudenaarde_Tacambaroplein_oorlogsmonument_-_228469_-_onroerenderfgoed.jpg
         # https://www.wikidata.org/wiki/Q3381576
         # https://www.wikidata.org/wiki/Q91079944
         # Could photography genre generate genre statement when having instance genre?
-        pywikibot.warning('Not adding depict statements for item {} ({}) having subclass ()'
-                          .format(item_label, item.getID(), SUBCLASSPROP))
-    elif INSTANCEPROP not in item.claims:
-        pywikibot.warning('Instance statement (P31) missing for item {} ({})'
-                          .format(item_label, item.getID()))
+        pywikibot.warning('Not adding depict statements for item {} ({}) having {} ({})'
+                          .format(item_label, item.getID(), get_property_label(SUBCLASSPROP), SUBCLASSPROP))
     else:
-        # Find all media files for the item
+        # Find all media files for the item having P31
+        item_has_sdc = False
         for prop in item.claims:
             if prop in depict_item_type:
-                # Reinitialise the depict statement (reset previous loop updates)
-                if (depict_item_type[prop] or prop == IMAGEPROP
+                item_has_sdc = True
+                if (depict_item_type[prop] or
+                        prop == IMAGEPROP                   # Portrait of person
                         and item_is_in_list(item.claims[INSTANCEPROP], HUMANINSTANCE)):
                     # Compound depict REPRESENTATIONTYPEPROP
                     # Build the depict qualifier
@@ -1573,6 +1697,7 @@ Structure of the Wikimedia Commons structured data statements:
     https://commons.wikimedia.org/wiki/Special:EntityData/M17372639.json
     "qualifiers":{"P642":[{"snaktype":"value","property":"P642","hash":"13ca233362287df2f52077d460ebef58a666c855","datavalue":{"value":{"entity-type":"item","numeric-id":336977,"id":"Q336977"},"type":"wikibase-entityid"}}]},"qualifiers-order":["P642"],"id":"M17372639$b8185896-4eab-2715-5606-388898d07071","rank":"normal"}]}
                     """
+                    # Update the depict statement (overrule previous loop updates)
                     depict_statement['claims'][0]['qualifiers-order'] = [REPRESENTATIONTYPEPROP]
                     depict_statement['claims'][0]['qualifiers'] = {}
                     depict_statement['claims'][0]['qualifiers'][REPRESENTATIONTYPEPROP] = [{
@@ -1597,11 +1722,13 @@ Structure of the Wikimedia Commons structured data statements:
                                         representationtypelabel, item_desc,
                                         REPRESENTATIONTYPEPROP, qnumber)
                 else:
-                    # Simple depicts
-                    qnumber = item.getID()
-                    if 'qualifiers' in depict_statement['claims'][0]:       # Compound depict statement
+                    # Simple depicts: P18 or P996, without qualifiers
+                    # Remove compound depict statement, if present
+                    if 'qualifiers' in depict_statement['claims'][0]:
                         del(depict_statement['claims'][0]['qualifiers'])
                         del(depict_statement['claims'][0]['qualifiers-order'])
+
+                    qnumber = item.getID()
                     depictsdescr = 'Add SDC depicts {} (P180:{})'.format(item_label, qnumber)
                     depictsfmtd = 'Add SDC depicts [[d:{1}|{0}]] ({1})'.format(item_label, qnumber)
 
@@ -1609,6 +1736,7 @@ Structure of the Wikimedia Commons structured data statements:
                     # Verify if there is a missing depict statement for any of the media files
                     depict_missing = True
 
+                    # Update the depict statement (overrule previous loop updates)
                     if depict_item_type[prop]:
                         depict_statement['claims'][0]['rank'] = NORMAL_RANK
                     else:
@@ -1617,9 +1745,18 @@ Structure of the Wikimedia Commons structured data statements:
 
                     # Get SDC media file info
                     media_page = claim.getTarget()
+                    if not media_page:  # None
+                        # https://www.wikidata.org/wiki/Q22908307#P8972
+                        continue
+                    
+                    # This page is registered on Wikidata, so remove it from the list
+                    page_list.discard(media_page)
                     media_name = media_page.title()
-                    # https://commons.wikimedia.org/entity/M63763537
                     media_identifier = 'M' + str(media_page.pageid)
+                    pywikibot.info('{} entity/{} depicts {} ({})'
+                                   .format(media_name, media_identifier, item_label, item.getID())) # representatietype: portret ??
+
+                    # https://commons.wikimedia.org/entity/M63763537
                     sdc_request = site.simple_request(action='wbgetentities', ids=media_identifier)
                     commons_item = sdc_request.submit()
                     sdc_data = commons_item.get('entities').get(media_identifier)
@@ -1627,6 +1764,7 @@ Structure of the Wikimedia Commons structured data statements:
 
                     if sdc_statements:
                         # Show location from metadata
+                        ### Nothing else is done with this information??
                         for val in location_target:
                             location_coord = sdc_statements.get(val[1])
                             if location_coord:
@@ -1642,6 +1780,7 @@ Structure of the Wikimedia Commons structured data statements:
                                 # Only allow for a single preferred rank -> need to verify all instances
                                 if depict['rank'] == PREFERRED_RANK:
                                     depict_statement['claims'][0]['rank'] = NORMAL_RANK
+
                                 sitem = get_sdc_item(depict['mainsnak'])
                                 if not sitem:
                                     pass
@@ -1655,7 +1794,7 @@ Structure of the Wikimedia Commons structured data statements:
 https://commons.wikimedia.org/wiki/Special:EntityData/M82236232.json
 "P180":[{"mainsnak":{"snaktype":"value","property":"P180","hash":"7282af9508eed4a6f6ebc2e92db7368ecdbb61ab","datavalue":{"value":{"entity-type":"item","numeric-id":22668172,"id":"Q22668172"},"type":"wikibase-entityid"}},"type":"statement","id":"M82236232$e1491557-469c-7672-92d6-6e490f7403bf","rank":"normal"}],
                     """
-                    # Should update REPRESENTATIONTYPEPROP qualifier for existing depicts...
+                    ## Should be able to update REPRESENTATIONTYPEPROP qualifier for existing depicts...
                     if depict_missing:
                         # Add the SDC depict statements for this item
                         pywikibot.debug(depict_statement)
@@ -1667,27 +1806,49 @@ https://commons.wikimedia.org/wiki/Special:EntityData/M82236232.json
                             'id': media_identifier,
                             'data': json.dumps(depict_statement, separators=(',', ':')),
                             'token': commons_token,
-                            'summary': transcmt + ' ' + depictsfmtd + ' statement',
+                            'summary': transcmt + ' ' + depictsfmtd,
                             'bot': cbotflag,
                         }
 
                         sdc_request = site.simple_request(**sdc_payload)
                         try:
                             sdc_request.submit()
-                            pywikibot.warning('{} to {} ({}) entity/{} {}'
-                                              .format(depictsdescr,
-                                                      get_property_label(prop), prop,
-                                                      media_identifier, media_name))
+                            pywikibot.warning('{} to {} ({}) entity/{} {}'.format(
+                                              depictsdescr,
+                                              get_property_label(prop), prop,
+                                              media_identifier, media_name))
                         except Exception as error:
                             # permissiondenied: You do not have the permissions needed to carry out this action for Q15616276
                             # https://commons.wikimedia.org/wiki/Commons:Auto-protected_files/wikipedia/bn
                             pywikibot.error('{}, {}'.format(depictsdescr, error))
                             pywikibot.info(sdc_request)
-                            if exitfatal:               # Stop on first error
+                            if False:               # Stop on first error
                                 raise
+    if page_list:
+        pywikibot.info('Other media files with SDC depict statements, not visible on Wikidata item {} ({}):'
+                       .format(item_label, item.getID()))
 
+        # Please manually control for homonyms
+        # e.g. Different bank with same name "Optima Bank" (Greek versus Belgium)
+        # https://commons.wikimedia.org/w/index.php?title=File%3AFile_Optima_bank_logo_160px.png&diff=1156096684&oldid=1098655886
+        # https://commons.wikimedia.org/wiki/Special:Diff/1156096684
+        # File:Αρχείο Optima bank logo.png
+        for media_page in page_list:
+            # List media files not already registered on Wikidata item
+            # Show any potential problems with those images (missing or conflicting information)
+          try:
+            manual_check = ''
+            media_filename = media_page.title().split(':')[1]
+            if not CATEGORYRE.search(media_page.text):
+                manual_check += ' %% Missing media category'
+            nonroman_re = NONROMANRE.findall(media_filename)
+            if nonroman_re:
+                manual_check += ' %% Nonroman characters in filename:' + ''.join(nonroman_re)
+            pywikibot.info('\t{}{}'.format(media_page.title(), manual_check))
+          except:
+            pdb.set_trace()
 
-def add_item_statement(item, propty, sitem, reference):
+def add_item_statement(item, propty, sitem, reference, require_merge):
     """
     Add missing statement to item
 
@@ -1697,16 +1858,18 @@ def add_item_statement(item, propty, sitem, reference):
     :param reference: reference statement
     :return: Claim if updated
     """
-    ##pdb.set_trace()
     claim_added = None
     qnumber = item.getID()
+    item_label = get_item_header(item.labels)
+    propty_label = get_property_label(propty)
+
     ### Need to fix sqnumber type
-    if isinstance(sitem, pywikibot.page._wikibase.ItemPage):
+    if isinstance(sitem, pywikibot.ItemPage):
         # Item
         sqnumber = sitem.getID()
         slabel = get_item_header(sitem.labels)
     ##elif re.QSUFFRE(sitem):
-        #sitem = pywikibot.ItemPage(repo, sitem)
+        #sitem = get_item_page(sitem)
         #sqnumber = sitem.getID()
         #slabel = get_item_header(sitem.labels)
     ##elif: handle possible other data types
@@ -1715,34 +1878,34 @@ def add_item_statement(item, propty, sitem, reference):
         sqnumber = sitem
         slabel = sitem
 
+    try:
+        # Get first instance
+        primary_inst_item = get_item_page(item.claims[INSTANCEPROP][0].getTarget())
+        instance_label = get_item_header(primary_inst_item.labels)
+        item_instance = primary_inst_item.getID()
+    except:
+        instance_label = '-'
+        item_instance = None
+
+    #pdb.set_trace()
     # Do not add duplicate statements
     if (propty not in item.claims
             or not item_is_in_list(item.claims[propty], [sqnumber])):
         claim = pywikibot.Claim(repo, propty)
         claim.setTarget(sitem)
-        propty_label = get_property_label(propty)
         item.addClaim(claim, bot=wdbotflag, summary=transcmt + ' Add {} ({})'
-                          .format(propty_label, propty))
+                      .format(propty_label, propty))
         claim_added = claim
 
-        try:
-            primary_inst_item = get_item_page(item.claims[INSTANCEPROP][0].getTarget())
-            instance_label = get_item_header(primary_inst_item.labels)
-            item_instance = primary_inst_item.getID()
-        except:
-            instance_label = '-'
-            item_instance = None
-
-        pywikibot.warning('Add {}:{} ({}:{}) to {} ({}) {} ({})'
-                          .format(propty_label, slabel,
-                                  propty, sqnumber, instance_label, item_instance,
-                                  get_item_header(item.labels), qnumber))
+        pywikibot.warning('Add {} ({}) {} ({}) to {} ({}) {} ({})'.format(
+                          propty_label, propty, slabel, sqnumber,
+                          instance_label, item_instance, item_label, qnumber))
 
         ## Add the reference statement
         if reference:
             try:
                 ## Remove hash from reference (needs to be recoded)
-                pdb.set_trace()
+                ###pdb.set_trace()
                 for refseq in reference:
                     del(refseq[1]['hash'])
                 """
@@ -1757,37 +1920,11 @@ def add_item_statement(item, propty, sitem, reference):
                 # Invalid JSON
                 pywikibot.error('Error processing {}, {}'.format(qnumber, error))
                 pywikibot.info(reference)
-    else:
-        # If missing reference, also add one
-        for claim in item.claims[propty]:
-            """
-[OrderedDict([('P3452', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P3452', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 15864}, 'type': 'wikibase-entityid'}, 'hash': '1781c38b5e52a087980b31675bfba3708d40d3c5'})])])]
 
-[OrderedDict([('P854', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'https://www.nytimes.com/1969/03/22/archives/mitt-romney-marries-ann-davies.html', 'type': 'string'}, 'hash': 'f2a30e913832e670cf4a39b05890d5de59bb333c'})])])]
-
-[OrderedDict([('P143', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P143', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 328}, 'type': 'wikibase-entityid'}, 'hash': 'fa278ebfc458360e5aed63d5058cca83c46134f1'})])])]
-
-https://www.geeksforgeeks.org/ordereddict-in-python/
-
-[OrderedDict([('P854', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P854', 'datatype': 'url', 'datavalue': {'value': 'http://www.cbsnews.com/news/facebooks-mark-zuckerberg-marries-priscilla-chan/', 'type': 'string'}, 'hash': '8780de76ecf140bd7722065c6b888975115bf510'})]), ('P123', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P123', 'datatype': 'wikibase-item', 'datavalue': {'value': {'entity-type': 'item', 'numeric-id': 861764}, 'type': 'wikibase-entityid'}, 'hash': '8780de76ecf140bd7722065c6b888975115bf510'})]), ('P1476', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P1476', 'datatype': 'monolingualtext', 'datavalue': {'value': {'text': "Facebook's Mark Zuckerberg marries Priscilla Chan", 'language': 'en'}, 'type': 'monolingualtext'}, 'hash': '8780de76ecf140bd7722065c6b888975115bf510'})]), ('P1683', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P1683', 'datatype': 'monolingualtext', 'datavalue': {'value': {'text': "This photo provided by Facebook shows the social network's co-founder and CEO Mark Zuckerberg and Priscilla Chan at their wedding ceremony in Palo Alto, Calif., Saturday, May 19, 2012.", 'language': 'en'}, 'type': 'monolingualtext'}, 'hash': '8780de76ecf140bd7722065c6b888975115bf510'})]), ('P577', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P577', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002012-05-22T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}, 'hash': '8780de76ecf140bd7722065c6b888975115bf510'})])])]
-
-[OrderedDict([('P813', [Claim.fromJSON(DataSite("wikidata", "wikidata"), {'snaktype': 'value', 'property': 'P813', 'datatype': 'time', 'datavalue': {'value': {'time': '+00000002018-12-01T00:00:00Z', 'precision': 11, 'after': 0, 'before': 0, 'timezone': 0, 'calendarmodel': 'http://www.wikidata.org/entity/Q1985727'}, 'type': 'time'}, 'hash': '79cf2c8b5840d10d87884eafdbd1e9ca5bdfed07'})])])]
-
-            """
-            ## Needs to be recoded
-            if reference and not claim.getSources() and claim.getTarget().getID() == sqnumber:  ### Need to fix sqnumber type detection...
-                try:
-                    ## Remove hash from reference
-                    pdb.set_trace()
-                    for refseq in reference:
-                        del(refseq[1]['hash'])
-                    claim.addSources(reference, summary=transcmt + ' Add reference')
-                    pywikibot.warning('Add reference {}'.format(reference))
-                except Exception as error:  # other exception to be used
-                    # Invalid JSON
-                    pywikibot.error('Error processing {}, {}'.format(qnumber, error))
-                    pywikibot.info(reference)
-
+    elif require_merge:
+        pywikibot.warning('{} ({}) statement already present; requires manual merge of {} ({}) into {} ({}) {} ({})'
+                          .format(propty_label, propty, slabel, sqnumber,
+                                  instance_label, item_instance, item_label, qnumber))
     return claim_added
 
 
@@ -1798,15 +1935,13 @@ def wd_proc_all_items():
 
     global commonscatqueue
     global exitstat
+    ###global infoboxlist
     global lastwpedit
     global nat_languages
     global transcount
     global unset_wikis
 
 # Loop initialisation
-    statcount = 0           # Statement count
-    pictcount = 0	    	# Picture count
-    safecount = 0	    	# Safe transaction
     errcount = 0	    	# Error counter
     errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
 
@@ -1829,64 +1964,82 @@ def wd_proc_all_items():
         transcount += 1
 
         status = 'OK'
-        alias = ''
-        descr = ''
-        commonscat = ''     # Commons category
-        nationality = ''
-        label = ''
         birthday = ''
         deathday = ''
-        mainwikipediapage = ''
 
-        try:		        # Error trapping (prevents premature exit on transaction error)
+        label = ''
+        descr = ''
+        alias = ''
+
+        commonscat = ''     # Commons category
+        mainwikipediapage = ''
+        nationality = ''
+
+        item_instance = ''
+        instance_label = ''
+
+        try:
+            # Error trapping (prevents premature exit on transaction error)
             item = get_item_page(qnumber)
-            qnumber = item.getID()
+            qnumber = item.getID()  # Allow for redirect
 
             # Instance type could be missing
             # Only get first instance
             # Redundant instances are ignored
+            ##pdb.set_trace()
             try:
+                # We require an instance
                 primary_inst_item = get_item_page(item.claims[INSTANCEPROP][0].getTarget())
                 item_instance = primary_inst_item.getID()
+                instance_label = get_item_header(primary_inst_item.labels)
 
                 # Show missing statements for item
-                if INSTANCEPROPLISTPROP in primary_inst_item.claims:
+                if False and INSTANCEPROPLISTPROP in primary_inst_item.claims:
                     ###pdb.set_trace()
                     for claim in primary_inst_item.claims[INSTANCEPROPLISTPROP]:
                         proptyx = claim.getTarget()
-                        propty = proptyx.getID()       # Comparison requires property as string
-                        if False and propty not in item.claims:
-                            pywikibot.warning('Missing statement {} ({})'
-                                              .format(get_item_header(proptyx.labels), propty))
-            except:
-                item_instance = ''
+                        propty = proptyx.getID()
 
-            label = get_item_header(item.labels)      # Get label
-            nationality = get_prop_val_object_label(item,   [NATIONALITYPROP, COUNTRYPROP, COUNTRYORIGPROP, JURISDICTIONPROP])  # nationality
-            birthday    = get_prop_val_year(item,     [BIRTHDATEPROP, FOUNDINGDATEPROP, STARTDATEPROP, OPERATINGDATEPROP])      # birth date (normally only one)
-            deathday    = get_prop_val_year(item,     [DEATHDATEPROP, DISSOLVDATEPROP, ENDDATEPROP, SERVICEENDDATEPROP])        # death date (normally only one)
+                        if propty in item.claims:
+                            if proptyx.type == 'wikibase-item':
+                                pywikibot.info('{}:'.format(get_property_label(proptyx)))
+                                for seq in item.claims[propty]:
+                                    pywikibot.info('\t{}'.format(get_item_header(seq.target.labels)))
+                            #### add other datatypes
+            except:
+                pass    # no instance
+
+            # Preliminary label (can change further down)
+            label = get_item_header(item.labels)            # Get label
+            descr = get_item_header(item.descriptions)      # Get description
+            alias = get_item_header(item.aliases)           # Get alias
+
+            nationality = get_item_prop_val_object_label(item, [NATIONALITYPROP, COUNTRYPROP, COUNTRYORIGPROP, JURISDICTIONPROP])  # nationality
+            birthday    = get_item_prop_val_year(item, [BIRTHDATEPROP, FOUNDINGDATEPROP, STARTDATEPROP, OPERATINGDATEPROP, PUBYEARPROP])      # birth date (normally only one)
+            deathday    = get_item_prop_val_year(item, [DEATHDATEPROP, DISSOLVDATEPROP, ENDDATEPROP, SERVICEENDDATEPROP])        # death date (normally only one)
 
             if label == '-':
                 status = 'No label'         # Missing label
+                pywikibot.info('Missing label')
             else:
                 # Remove redundant trailing writing direction
                 while len(label) > 0 and label[len(label)-1] in {'\u200e', '\u200f'}:
                     label=label[:len(label)-1]
-                # Replace alternative space character
-                label = label.replace('\u00a0', ' ').strip()
-
+                # Replace hard space character
+                label = label.replace('\u00a0', ' ').strip()    ### .replace('\uc2a0', ' ')
                 label = get_canon_name(label)
 
-                if not (item_instance in human_type_list or forcecopy):   # Force label copy
+                if item_instance in enterprise_type_list: # business, enterprise
+                    pass        # Allow mul label
+                elif not (item_instance in human_type_list or forcecopy):   # Force label copy
                     status = 'Item'                         # Non-human item
                 elif (NATIONALITYPROP in item.claims
                         and item_is_in_list(item.claims[NATIONALITYPROP], veto_countries)):     # nationality blacklist (languages)
                     status = 'Country'
-                elif (    not ROMANRE.search(label)
+                elif (NONROMANRE.search(label)
                         or (mainlang in item.aliases
                             and is_foreign_lang_label(item.aliases[mainlang]))
-                        or (NATIVENAMEPROP in item.claims
-                            and is_veto_lang_label(item.claims[NATIVENAMEPROP]))        # name in native language
+                        or item_has_veto_lang_label(item)   # name labels in veto language
                         or (NATIVELANGPROP in item.claims
                             and item_is_in_list(item.claims[NATIVELANGPROP], veto_languages_id)) # native language
                         or (LANGKNOWPROP in item.claims
@@ -1907,11 +2060,19 @@ def wd_proc_all_items():
             if 'no' in item.labels:
                 if 'nb' not in item.labels:
                     item.labels['nb'] = item.labels['no']
-                if 'nb' not in item.aliases:
+                elif 'nb' not in item.aliases:
                     item.aliases['nb'] = [item.labels['no']]
                 elif item.labels['no'] not in item.aliases['nb']:
                     item.aliases['nb'].append(item.labels['no'])
                 item.labels['no'] = ''
+
+            # Move no descriptions to nb, else remove
+            if 'no' in item.descriptions:
+                if 'nb' not in item.descriptions:
+                    item.descriptions['nb'] = item.descriptions['no']
+                item.descriptions['no'] = ''
+            elif not descr:
+                pywikibot.info('Missing description')
 
             # Move no aliases to nb
             if 'no' in item.aliases:
@@ -1921,13 +2082,9 @@ def wd_proc_all_items():
                             item.aliases['nb'].append(claim)
                 else:
                     item.aliases['nb'] = item.aliases['no']
-                item.aliases['no'] = []
-
-            # Move no descriptions to nb, else remove
-            if 'no' in item.descriptions:
-                if 'nb' not in item.descriptions:
-                    item.descriptions['nb'] = item.descriptions['no']
-                item.descriptions['no'] = ''
+                item.aliases['no'] = []     ## Best way??
+            elif not alias:
+                pywikibot.info('Missing alias')
 
 # (2) Merge sitelinks (gets priority above default value)
             noun_in_lower = False
@@ -1964,8 +2121,8 @@ def wd_proc_all_items():
                         # Wikidata lemmas are in lowercase, unless:
                         if (item_instance in human_type_list
                                 or lang in veto_languages
-                                or not ROMANRE.search(baselabel)
-                                or not ROMANRE.search(label)):
+                                or NONROMANRE.search(baselabel)
+                                or NONROMANRE.search(label)):
                             # Keep case sensitive or Non-Roman characters
                             pass
                         elif (lead_lower
@@ -1996,8 +2153,8 @@ def wd_proc_all_items():
 
                         # Register new label if not already present
                         if (sitelink.namespace not in {MAINNAMESPACE, CATEGORYNAMESPACE, TEMPLATENAMESPACE}
-                                # Only handle main namespace
-                                # mul label already registered; do not replicate language label
+                                # Only handle main namespaces
+                                # Don't replicate language label when mul label is already registered
                                 # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
                                 or MULANG in item.labels and item.labels[MULANG] == baselabel):
                             pass
@@ -2011,30 +2168,32 @@ def wd_proc_all_items():
                             # Assign single alias
                             item.aliases[lang] = [baselabel]
                         else:
+                            # Merge alias when missing
                             for claim in item.aliases[lang]:
                                 if item_name_canon == unidecode.unidecode(claim).casefold():
                                     break
                             else:
-                                item.aliases[lang].append(baselabel)    # Merge aliases
+                                item.aliases[lang].append(baselabel)
 
 # (3) Replicate instance descriptions
             # Get description from the EN Wikipedia
             # To our opinion the wp.en Short description template is useless;
-            # it should copy the description from Wikidata instead...
+            # it should reuse the description from Wikidata instead...
             # anyway we can store the value in Wikidata if it is available in WP and missing in WD
-            if ENLANG not in item.descriptions and ENLANG in item.sitelinks:    ## enlang_list ?
-                sitelink = item.sitelinks[ENLANG]
+            if ENLANG not in item.descriptions and 'enwiki' in item.sitelinks:
+                sitelink = item.sitelinks['enwiki']
                 page = pywikibot.Page(sitelink.site, sitelink.title, sitelink.namespace)
                 if sitelink.namespace == MAINNAMESPACE and page.text:
                     pagedesc = SHORTDESCRE.search(page.text)
                     if pagedesc:
-                        pywikibot.info(pagedesc)
                         itemdesc = pagedesc[1]
                         itemdesc = itemdesc[0].lower() + itemdesc[1:]   ## Always lowercase?
                         item.descriptions[ENLANG] = itemdesc
+                        pywikibot.warning('Registering item description {} from {}:{} ({})'
+                                          .format(pagedesc, ENLANG, sitelink.title, item.getID()))
 
             # Replicate labels from the instance label as descriptions
-            # Avoid redundant descriptions
+            # Don't replicate redundant descriptions
             # https://phabricator.wikimedia.org/T303677
             if (False and item_instance
                     and (repldesc or len(item.claims[INSTANCEPROP]) == 1
@@ -2043,8 +2202,118 @@ def wd_proc_all_items():
                     if overrule or lang not in item.descriptions:
                         item.descriptions[lang] = primary_inst_item.labels[lang].replace(':', ' ')
 
+            labellang = mainlang
+            for propty in [NATIVENAMEPROP, ORIGNAMELABELPROP]:
+                if propty in item.claims:
+                    # Get the original name label (should only have one)
+                    # https://www.wikidata.org/wiki/Help:Label
+                    # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+                    baselabel = item.claims[propty][0].getTarget()      ## We assume a single value
+                    label = baselabel.text
+                    labellang = baselabel.language
+                    break
+
+# Single native person name can be considered as mother tongue (native language)
+            for propty in native_related_languages_props:  ## NICKNAMEPROP is not official name
+                if propty in item.claims:
+                    # Get single native language from name
+                    for claim in item.claims[propty]:
+                        baselabel = claim.getTarget()
+                        natname = baselabel.text            # Avoid error "Object of type WbMonolingualText is not JSON serializable"
+                        lang = baselabel.language
+
+                        # Get main language
+                        if lang not in lang_qnumbers and '-' in lang:
+                            # Use fallback (main) language
+                            langid = lang.split('-')[0]
+                            pywikibot.error('Unknown language {}, use {} instead'
+                                            .format(lang, langid))
+                            lang = langid
+
+                        if lang in historic_lang_codes:
+                            # Not a native language
+                            # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+                            pass
+                        elif lang in lang_qnumbers:
+                            langid = lang_qnumbers[lang]
+                            nat_languages.add(langid)       # Add a natural language
+                            # Add the name as an alias
+                            # Add native language
+                            if (item_instance in human_type_list
+                                    and len(item.claims[propty]) == 1
+                                    and add_item_statement(item, NATIVELANGPROP, get_item_page(langid), None, False)):
+                                status = 'Update'
+                        else:
+                            ### We can't set mul language
+                            lang = MULANG
+                            pywikibot.error('Unknown language {}, use {} instead'.format(lang, MULANG))
+
+                        if (MULANG in item.labels and natname == item.labels[MULANG]
+                                or MULANG in item.aliases and natname in item.aliases[MULANG]):
+                            pass
+                        elif lang not in item.labels:
+                            # Add missing label
+                            item.labels[lang] = natname
+                            pywikibot.warning('Adding {} label {} from {} ({})'.format(
+                                              lang, natname, get_property_label(propty), propty))
+                        elif item.labels[lang] == natname:
+                            pass
+                        elif lang not in item.aliases:
+                             # Add missing alias
+                             item.aliases[lang] = [natname]
+                             pywikibot.warning('Adding {} alias {} from {}'.format(
+                                               lang, natname, get_property_label(propty), propty))
+                        elif natname not in item.aliases[lang]:
+                            item.aliases[lang].append(natname)
+                            pywikibot.warning('Adding {} alias {}'.format(lang, natname))
+
+# Add pseudonyms to the mul aliases
+            for propty in alternative_person_names_props:  ## including NICKNAMEPROP
+                if propty in item.claims:
+                    for claim in item.claims[propty]:
+                        # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+
+                        #### Requires additional validations (qualifiers scriptsystem, language)
+                        # item=pywikibot.ItemPage(repo,qnumber)
+
+                        # Artist name P1787 has normally a script system e.g. for Q1924464 Will Tura
+                        # for qual in claim.qualifiers
+                        # qualifiers = item.claims['P1787'][0].qualifiers
+                        # qualifiers['P282'][0].target.getID() == 'Q8229'
+
+                        # Nick name P1449 always require a language e.g. for Q99 California
+                        # >>> baselabel=item.claims['P1449'][0].target
+                        # WbMonolingualText(text=The Golden State, language=en)
+
+                        # Pseudonym P742 normally has no attributes e.g. for Q1744? Madonna
+
+                        lang = MULANG   # Unspecified language with correct script system
+                        claim_target = claim.getTarget()
+                        if propty == PSEUDONYMPROP:      # No attributes ???
+                            baselabel = claim_target
+                        elif propty == ARTISTNAMEPROP:     # Requires schriftsysteem Latijns alfabet P282:Q8229
+                            if FOREIGNSCRIPTPROP not in claim.qualifiers:
+                                baselabel = claim_target
+                            elif claim.qualifiers[FOREIGNSCRIPTPROP][0].target.getID() not in script_whitelist:
+                                continue
+                        elif propty == NICKNAMEPROP:       # Has mandatory language
+                            baselabel = claim_target.text
+                            lang = claim_target.language
+
+                        ##### Lanuage independant name ????
+                        if lang not in item.labels:
+                            item.labels[lang] = baselabel
+                            pywikibot.warning('Adding {} label {}'.format(lang, baselabel))
+                        elif item.labels[lang] == baselabel:
+                            continue
+                        elif lang not in item.aliases:
+                            item.aliases[lang] = [baselabel]
+                            pywikibot.warning('Adding {} alias {}'.format(lang, baselabel))
+                        elif baselabel not in item.aliases[lang]:
+                            item.aliases[lang].append(baselabel)    # Merge aliases
+                            pywikibot.warning('Adding {} alias {}'.format(lang, baselabel))
+
             # Add the label for missing languages
-            ###pdb.set_trace()
             if (label and (status in {'OK', 'Nationality'}
                     or item_instance == WIKIMEDIACATINSTANCE)):
                 if lead_lower:
@@ -2055,22 +2324,37 @@ def wd_proc_all_items():
                    label = label[0].upper() + label[1:]
 
                 if not uselabels:
-                    # Only update mul lang
-                    if MULANG not in item.labels:
-                        if ORIGNAMELABELPROP in item.claims:
-                            baselabel = item.claims[ORIGNAMELABELPROP][0].getTarget()
-                            if baselabel.language == MULANG:
-                                item.labels[MULANG] = baselabel.text
-                            else:
-                                item.labels[MULANG] = label
-                        else:
-                            item.labels[MULANG] = label
+                    # (preferably) Only update mul lang and special original/native language labels
+                    ## The order of execution is random
+                    for lang in {labellang, MULANG} - {mainlang}:
+                        if MULANG in item.labels and item.labels[MULANG] == label:
+                            # Label already in mul label
+                            pass
+                        elif lang not in item.labels:
+                            item.labels[lang] = label
+                            pywikibot.warning('Adding {} label {}'.format(lang, label))
+                        elif item.labels[lang] == label:
+                            pass
+                        elif lang not in item.aliases:
+                            item.aliases[lang] = [label]
+                            pywikibot.warning('Adding {} alias {}'.format(lang, label))
+                        elif label not in item.aliases[lang]:
+                            item.aliases[lang].append(label)
+                            pywikibot.warning('Adding {} alias {}'.format(lang, label))
 
-                    if MULANG not in item.aliases and mainlang in item.aliases:
-                        item.aliases[MULANG] = item.aliases[mainlang]
-                        ##item.aliases[mainlang] = []
+                    if False and MULANG not in item.aliases and labellang in item.aliases:
+                        ### Is this really (and always) necessary?
+
+                        ## https://www.wikidata.org/w/index.php?title=Q83333&diff=next&oldid=2427165708
+                        ## Why was James Dewey Watson removed from the EN alias?
+                        ## It was added again later...
+                        item.aliases[MULANG] = item.aliases[labellang]
+
+                        # The alias values should be copied in a loop
+                        pywikibot.warning('Adding mul aliases {}'.format(item.aliases[labellang]))
+                        ##item.aliases[labellang] = []
                 else:
-                    # Except if labels should be copied
+                    # (discouraged) Except if labels should be copied
                     # Ignore accents
                     # Skip non-Roman languages
                     item_label_canon = unidecode.unidecode(label).casefold()
@@ -2086,7 +2370,7 @@ def wd_proc_all_items():
                         else:
                             for claim in item.aliases[lang]:
                                 if (item_label_canon == unidecode.unidecode(claim).casefold()
-                                        or not ROMANRE.search(claim)):
+                                        or NONROMANRE.search(claim)):
                                     break
                             else:
                                 item.aliases[lang].append(label)    # Merge aliases
@@ -2104,14 +2388,14 @@ def wd_proc_all_items():
                         else:
                             for claim in item.aliases[lang]:
                                 if (item_label_canon == unidecode.unidecode(claim).casefold()
-                                        or not ROMANRE.search(claim)):
+                                        or NONROMANRE.search(claim)):
                                     break
                             else:
                                 item.aliases[lang].append(label)        # Merge aliases
 
 # (5) Add missing labels or aliases for descriptions
                     for lang in item.descriptions:
-                        if lang not in veto_languages and ROMANRE.search(item.descriptions[lang]):
+                        if lang not in veto_languages and not NONROMANRE.search(item.descriptions[lang]):
                             if lang not in item.labels:
                                 item.labels[lang] = label
                             elif item_label_canon == unidecode.unidecode(item.labels[lang]).casefold():
@@ -2121,7 +2405,7 @@ def wd_proc_all_items():
                             else:
                                 for claim in item.aliases[lang]:
                                     if (item_label_canon == unidecode.unidecode(claim).casefold()
-                                            or not ROMANRE.search(claim)):
+                                            or NONROMANRE.search(claim)):
                                         break
                                 else:
                                     item.aliases[lang].append(label)    # Merge aliases
@@ -2137,85 +2421,46 @@ def wd_proc_all_items():
                         else:
                             for claim in item.aliases[lang]:
                                 if (item_label_canon == unidecode.unidecode(claim).casefold()
-                                        or not ROMANRE.search(claim)):
+                                        or NONROMANRE.search(claim)):
                                     break
                             else:
                                 item.aliases[lang].append(label)    # Merge aliases
 
-# Single native person name can be considered as mother tongue (native language)
-            for propty in [BIRTHNAMEPROP, NATIVENAMEPROP, MARIEDNAMEPROP, NICKNAMEPROP]:
-                if propty in item.claims:
-                    # Get single native language from name
-                    for claim in item.claims[propty]:
-                        baselabel = claim.getTarget()
-                        natname = baselabel.text            # Avoid error "Object of type WbMonolingualText is not JSON serializable"
-                        lang = baselabel.language
-
-                        # Get main language
-                        if lang not in lang_qnumbers and '-' in lang:
-                            langid = lang.split('-')[0]
-                            pywikibot.error('Unknown language {}, use {} instead'
-                                            .format(lang, langid))
-                            lang = langid
-
-                        if lang == MULANG:
-                            # Not a native language
-                            # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
-                            pass
-                        elif lang in lang_qnumbers:
-                            langid = lang_qnumbers[lang]
-                            nat_languages.add(langid)       # Add a natural language
-                            # Add the name as an alias
-                            # Add native language
-                            if (item_instance in HUMANINSTANCE
-                                    and len(item.claims[propty]) == 1
-                                    and NATIVELANGPROP not in item.claims
-                                    and add_item_statement(item, NATIVELANGPROP, get_item_page(langid), None)):
-                                status = 'Update'
-                        else:
-                            # We can set mul language
-                            pywikibot.error('Unknown language {}, use {} instead'
-                                            .format(lang, MULANG))
-                            lang = MULANG
-
-                        if MULANG in item.labels and item.labels[MULANG] == natname:
-                            pass
-                        elif lang not in item.labels:
-                            item.labels[lang] = natname
-                        elif item.labels[lang] == natname:
-                            pass
-                        elif lang not in item.aliases:
-                             item.aliases[lang] = [natname]
-                        elif natname not in item.aliases:
-                            item.aliases[lang].append(natname)
-
-# Add pseudonyms to the mul aliases
-            for propty in alternative_person_names_props:
-                if propty in item.claims:
-                    for claim in item.claims[propty]:
-                        baselabel = claim.getTarget()
-                        # https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
-
-                        # Lanuage independant name
-                        lang = MULANG
-                        if lang not in item.labels:
-                            item.labels[lang] = baselabel
-                        elif item.labels[lang] == baselabel:
-                            pass
-                        elif lang not in item.aliases:
-                            item.aliases[lang] = [baselabel]
-                        elif baselabel not in item.aliases[lang]:
-                            item.aliases[lang].append(baselabel)    # Merge aliases
-
 # Replicate publication title
+            # Typical instances:
+            #   https://www.wikidata.org/wiki/Q13442814 (scholarly article)
+            #   https://www.wikidata.org/wiki/Q3331189 (edition)
             for propty in {EDITIONTITLEPROP}:
                 if propty in item.claims:
                     for claim in item.claims[propty]:
                         baselabel = claim.getTarget()
-                        # We ignore the language of publication; we assign the mul language, when missing
-                        if MULANG not in item.labels:
-                            item.labels[MULANG] = baselabel.text
+                        # We ignore the language of publication
+                        # Publications only use the mul label
+                        # We assign the mul language, when missing
+                        lang = baselabel.language
+                        if lang not in item.labels:
+                            item.labels[lang] = baselabel.text
+                            pywikibot.warning('Adding {} label {}'.format(lang, baselabel.text))
                             status = 'Update'
+
+                        if lang in lang_qnumbers:
+                            langid = lang_qnumbers[lang]
+                            nat_languages.add(langid)       # Add a natural language
+                            add_item_statement(item, EDITIONLANGPROP, get_item_page(langid), None, False)
+
+            if MULANG in item.labels:
+                # Possibly already filled in above from label
+                pass
+            elif ENLANG not in item.labels:
+                # English label is required
+                pywikibot.info('English item label is missing for {} ({})'.format(label, qnumber))
+            elif item_instance in human_type_list.union(enterprise_type_list):
+                # Register en label as mul label
+                item.labels[MULANG] = item.labels[ENLANG]
+                pywikibot.warning('Adding mul label {}'.format(item.labels[MULANG]))
+            # else:
+                ## enterprise_type_list was incomplete
+                ## https://www.wikidata.org/w/index.php?title=Q27897937&diff=2463105443&oldid=2444965827
 
 # (7) Move first alias to any missing label
             """
@@ -2224,9 +2469,9 @@ def wd_proc_all_items():
                 if (lang not in item.labels
                         and lang in all_languages
                         and lang in item.descriptions
-                        and ROMANRE.search(item.descriptions[lang])):
+                        and not NONROMANRE.search(item.descriptions[lang])):
                     for claim in item.aliases[lang]:
-                        if ROMANRE.search(claim):
+                        if not NONROMANRE.search(claim):
                             pywikibot.log('Move {} alias {} to label'.format(lang, claim))
                             item.labels[lang] = claim                 # Move single alias
                             item.aliases[lang].remove(claim)
@@ -2240,7 +2485,7 @@ def wd_proc_all_items():
                         item.aliases[lang].remove(item.labels[lang])
 
             """
-            ## Not yet agreed by community...
+            ## Not yet agreed by the user community...
             for lang in item.labels:
                 if lang != MULANG and item.labels[lang] == label:
                     item.labels[lang] = ''
@@ -2248,103 +2493,130 @@ def wd_proc_all_items():
 
             """
             ## Bad idea
-            ### Potential problem with missing mul label
+            ### Potential problem with (future) missing mul label
             for lang in item.aliases:
                 while item.labels[MULANG] in item.aliases[lang]:
                     item.aliases[lang].remove(item.labels[MULANG])
             """
 
 # (8) Add missing Wikipedia sitelinks
+            # Check if creator is blocked
+            for rev in item.revisions(reverse = True, total = 1):   # Get the article creator
+                wikiuser = pywikibot.User(repo, rev.user)
+            # https://www.mediawiki.org/wiki/API:Block#Python
+            # https://www.wikidata.org/wiki/User:PU5000
+            userprop = wikiuser.getprops()
+            if 'blockid' in userprop:
+                pywikibot.info('Creator {} of {} ({}) is blocked since {}'.format(
+                               rev.user, label, qnumber, userprop['blockedtimestamp']))
+
             for lang in main_languages:
                 sitelang = lang + 'wiki'
-                if lang == MULANG:
-                    # Skip default language
-                    continue
-                elif lang == 'bho':
+                if lang == 'bho':
                     sitelang = 'bhwiki'
                 elif lang == 'nb':
                     sitelang = 'nowiki'
 
                 # Add missing sitelinks
                 if sitelang not in item.sitelinks:
+                    # mul doesn't have sitelinks
                     # This section would need to contain a complicated recursive error handling algorithm.
                     # SetSitelinks nor editEntity can't be used because it stops at the first error, and we need more control.
                     # Sitelink pages might not be available (quick escape via except pass; an error message is printed).
                     itmlist = set()
+
                     if lang in item.labels:
-                        sitedict = {'site': sitelang, 'title': item.labels[lang]}
+                        itemlabel = item.labels[lang]
+                    elif MULANG in item.labels:
+                        # Default language
+                        itemlabel = item.labels[MULANG]
+                    else:
+                        itemlabel = ''
+
+                    if itemlabel:
+                        sitedict = {'site': sitelang, 'title': itemlabel}
                         try:
                             # Try to add a sitelink now
-                            item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink')
-                            pywikibot.warning('Creating sitelink {}:{} ({})'
-                                              .format(lang, item.labels[lang], qnumber))
+                            item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink wp.' + lang)
+                            pywikibot.warning('Creating sitelink {}:{} ({})'.format(
+                                              lang, itemlabel, qnumber))
                             status = 'Sitelink'
                             ###item.sitelinks[sitelang] =   # "in memory" item is not automatically updated
                         except pywikibot.exceptions.OtherPageSaveError as error:
                             # Two or more sitelinks can have conflicting Qnumbers.
                             # Get unique Q-numbers, skip duplicates (order not guaranteed)
                             itmlist = set(QSUFFRE.findall(str(error)))
-                            if len(itmlist) > 0:
-                                itmlist.remove(qnumber)
+                            itmlist.discard(qnumber)
 
-                            if len(itmlist) > 0:
-                                pywikibot.info('Sitelink {}:{} ({}) conflicting with {}'
-                                               .format(lang, item.labels[lang], qnumber, itmlist))
+                            if itmlist:
+                                # Could expand
+                                pywikibot.info('Sitelink {}:{} ({}) conflicting with {}'.format(
+                                               lang, itemlabel, qnumber, itmlist))
                                 status = 'DupLink'	    # Conflicting sitelink statement
                                 errcount += 1
                                 exitstat = max(exitstat, 10)
 
                     # If the sitelink is still missing, try to add a sitelink from the aliases
                     if sitelang not in item.sitelinks and lang in item.aliases:
-                        for claim in item.aliases[lang]:
-                            sitedict = {'site': sitelang, 'title': claim}
+                        for itemlabel in item.aliases[lang]:
+                            sitedict = {'site': sitelang, 'title': itemlabel}
                             try:
-                                item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink')
-                                pywikibot.warning('Creating sitelink {}:{} ({})'
-                                                  .format(lang, claim, qnumber))
+                                item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink wp.' + lang)
+                                pywikibot.warning('Creating sitelink {}:{} ({})'.format(
+                                                  lang, itemlabel, qnumber))
                                 status = 'Sitelink'
-                                ###item.sitelink
+                                ###item.sitelinks[sitelang] =   # "in memory" item is not automatically updated
                                 break
                             except pywikibot.exceptions.OtherPageSaveError as error:
                                 # Get unique Q-numbers, skip duplicates (order not guaranteed)
                                 aitmlist = set(QSUFFRE.findall(str(error)))
-                                if len(aitmlist) > 0:
-                                    aitmlist.remove(qnumber)
+                                aitmlist.discard(qnumber)
 
-                                if len(aitmlist) > 0:
+                                if aitmlist:
+                                    # Could expand
+                                    pywikibot.info('Sitelink {}:{} ({}) conflicting with {}'.format(
+                                                   lang, itemlabel, qnumber, aitmlist))
                                     itmlist.update(aitmlist)
-                                    pywikibot.info('Sitelink {}:{} ({}) conflicting with {}'
-                                                   .format(lang, claim, qnumber, aitmlist))
                                     status = 'DupLink'	    # Conflicting sitelink statement
                                     errcount += 1
                                     exitstat = max(exitstat, 10)
 
-                    # Create symmetric Not Equal statements
-                    # Requires matching instances
-                    # Inverse statement will be executed below
-                    ## WARNING: entity-schema datatype is not supported yet.
-                    if INSTANCEPROP not in item.claims:
-                        pywikibot.info('Missing instance ({}) for {}'
-                                       .format(INSTANCEPROP, qnumber))
+                    if not itmlist:
+                        # No conflicts
+                        pass
+                    elif 'blockid' in userprop:
+                        pywikibot.info('Creator {} of {} ({}) is blocked, with homonyms {}'
+                                       .format(rev.user, label, qnumber, itmlist))
+                    elif INSTANCEPROP not in item.claims:
+                        pywikibot.info('Missing instance ({}) for {} ({}), with homonyms {}'
+                                       .format(INSTANCEPROP, label, qnumber, itmlist))
                     else:
                         # Add missing not equal statements
                         for sqnumber in itmlist:
                             relitem = get_item_page(sqnumber)
-                            if INSTANCEPROP not in relitem.claims:
-                                pywikibot.info('Missing instance ({}) for {}'.format(INSTANCEPROP, sqnumber))
+                            for rev in relitem.revisions(reverse = True, total = 1):   # Get the article creator
+                                wikiuser = pywikibot.User(repo, rev.user)
+                            reluserprop = wikiuser.getprops()
+                            if 'blockid' in reluserprop:
+                                pywikibot.info('Creator {} of {} ({}) is blocked since {}'.format(
+                                               rev.user, get_item_header(relitem.labels), sqnumber,
+                                               reluserprop['blockedtimestamp']))
+                            elif INSTANCEPROP not in relitem.claims:
+                                pywikibot.info('Missing instance ({}) for {} ({})'.format(
+                                               INSTANCEPROP, get_item_header(relitem.labels), sqnumber))
                             elif matching_claims(item.claims[INSTANCEPROP], relitem.claims[INSTANCEPROP]):
-                                add_item_statement(item, NOTEQTOPROP, relitem, None)
-                                add_item_statement(relitem, NOTEQTOPROP, item, None)
+                                add_item_statement(item, NOTEQTOPROP, relitem, None, False)
+                                add_item_statement(relitem, NOTEQTOPROP, item, None, False)
                             else:
-                                pywikibot.info('Nonmatching instances: {} ({}) is {} ({}) - {} ({}) is {} ({})'
-                                               .format(get_item_header(item.labels), qnumber,
-                                                       get_item_header(item.claims[INSTANCEPROP][0].getTarget().labels),
-                                                       item.claims[INSTANCEPROP][0].getTarget().getID(),
-                                                       get_item_header(relitem.labels), sqnumber,
-                                                       get_item_header(relitem.claims[INSTANCEPROP][0].getTarget().labels),
-                                                       relitem.claims[INSTANCEPROP][0].getTarget().getID()))
+                                pywikibot.info('Nonmatching instances: {} ({}) is {} ({}) - {} ({}) is {} ({})'.format(
+                                               label, qnumber,
+                                               get_item_header(item.claims[INSTANCEPROP][0].target.labels),
+                                               item.claims[INSTANCEPROP][0].target.getID(),
+                                               get_item_header(relitem.labels), sqnumber,
+                                               get_item_header(relitem.claims[INSTANCEPROP][0].target.labels),
+                                               relitem.claims[INSTANCEPROP][0].target.getID()))
 
-                # Get Wikipedia page
+                # Get Wikipedia page in main languages
                 if sitelang in item.sitelinks and not mainwikipediapage:
                     mainwikipediapage = item.sitelinks[sitelang].site.lang + ':' + item.sitelinks[sitelang].title
 
@@ -2355,58 +2627,52 @@ def wd_proc_all_items():
 
 # (9) Set Commons Category sitelinks
             # Search for candidate Commons Category
-            enlabel = get_item_header_langlist(item.labels, enlang_list)
             if COMMONSCATPROP in item.claims:                   # Get candidate category
-                commonscat = item.claims[COMMONSCATPROP][0].getTarget() # Only take first value
+                commonscat = get_canon_name(item.claims[COMMONSCATPROP][0].getTarget()) # Only take first value
             elif 'commonswiki' in item.sitelinks:               # Commons sitelink exists
                 sitelink = item.sitelinks['commonswiki']
                 if sitelink.namespace in {MAINNAMESPACE, CATEGORYNAMESPACE}:
-                    commonscat = sitelink.title
+                    commonscat = get_canon_name(sitelink.title)
             elif maincat_item and COMMONSCATPROP in maincat_item.claims:
-                commonscat = maincat_item.claims[COMMONSCATPROP][0].getTarget()
+                commonscat = get_canon_name(maincat_item.claims[COMMONSCATPROP][0].getTarget())
             elif COMMONSGALLARYPROP in item.claims:             # Commons gallery page
-                commonscat = item.claims[COMMONSGALLARYPROP][0].getTarget()
-            elif COMMONSINSTPROP in item.claims:                # Commons institution page
-                commonscat = item.claims[COMMONSINSTPROP][0].getTarget()
+                commonscat = get_canon_name(item.claims[COMMONSGALLARYPROP][0].getTarget())
+            elif COMMONSINSTITUTIONPROP in item.claims:                # Commons institution page
+                commonscat = get_canon_name(item.claims[COMMONSINSTITUTIONPROP][0].getTarget())
             elif COMMONSCREATORPROP in item.claims:             # Commons creator page
-                commonscat = item.claims[COMMONSCREATORPROP][0].getTarget()
+                commonscat = get_canon_name(item.claims[COMMONSCREATORPROP][0].getTarget())
             elif item_instance in lastname_type_list:
                 commonscat = label + ' (surname)'
-            elif enlabel:                               # English label might possibly be used as Commons category
-                commonscat = enlabel
-            elif mainlang in item.labels:               # Otherwise the native label
-                commonscat = item.labels[mainlang]
 
             if commonscat:
                 # https://www.wikidata.org/w/index.php?title=Q209351&diff=2044505169&oldid=1988298469
                 page = pywikibot.Category(site, commonscat)
                 if not page.text:
                     # Category page does not exist (yet)
-                    pywikibot.warning('Empty Wikimedia Commons category [[Category:{}]]'
-                                      .format(commonscat))
+                    # Category page must be created manually, because it requires at least one uplevel category
+                    pywikibot.info('Empty Wikimedia Commons [[c:Category:{}]]'.format(commonscat))
                     commonscat = ''
                 elif COMMONSCATREDIRECTRE.search(page.text):
                     # Should only assign real Category pages
-                    pywikibot.warning('Redirect Wikimedia Commons category [[Category:{}]]'
-                                      .format(commonscat))
+                    pywikibot.info('Skip redirected Commons [[c:Category:{}]]'.format(commonscat))
                     commonscat = ''
                 elif 'commonswiki' not in item.sitelinks:
                     # Try to create a missing Wikimedia Commons Category sitelink
                     try:
                         sitedict = {'site': 'commonswiki', 'title': page.title()}
-                        item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink')
+                        item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink Commons category')
+                        pywikibot.warning('Creating sitelink [[c:Category:{}]]'.format(commonscat))
                         status = 'Commons'
                     except pywikibot.exceptions.OtherPageSaveError as error:
                         # Category already assigned to other item
                         # Get unique Q-numbers, skip duplicates (order is not guaranteed)
                         itmlist = set(QSUFFRE.findall(str(error)))
-                        if len(itmlist) > 0:
-                            itmlist.remove(qnumber)
+                        itmlist.discard(qnumber)
 
                         # Silently pass if no conflicting Category page
-                        if len(itmlist) > 0:
-                            # Category was not assigned due to ambiguity
-                            pywikibot.info('Category {} ({}) conflicting with {}'
+                        if itmlist:
+                            # Category was not assigned due to ambiguity (could expand)
+                            pywikibot.info('Wikimedia Commons Category:{} ({}) conflicting with {}'
                                            .format(commonscat, qnumber, itmlist))
                             status = 'DupCat'	    # Conflicting category statement
                             errcount += 1
@@ -2420,30 +2686,37 @@ def wd_proc_all_items():
                                     # Inverse statement will be executed below
                                     if (INSTANCEPROP in relitem.claims
                                             and matching_claims(item.claims[INSTANCEPROP], relitem.claims[INSTANCEPROP])):
-                                        add_item_statement(item, NOTEQTOPROP, relitem, None)
-                                        add_item_statement(relitem, NOTEQTOPROP, item, None)
+                                        add_item_statement(item, NOTEQTOPROP, relitem, None, False)
+                                        add_item_statement(relitem, NOTEQTOPROP, item, None, False)
                         commonscat = ''
 
                 if commonscat:
-                    # Add Wikidata Infobox to Wikimedia Commons Category
-                    # Requires a Wikimedia Commons botflag
-                    if cbotflag and not WDINFOBOXRE.search(page.text):
-                        #### https://commons.wikimedia.org/wiki/Commons:Bots/Requests/GeertivpBot#GeertivpBot_(overleg_%C2%B7_bijdragen)
-                        # Avoid duplicates and Category redirect
-                        pageupdated = transcmt + ' Add Wikidata Infobox'
-                        # Trim trailing spaces
-                        page.text = '{{Wikidata Infobox}}\n' + re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
-                        pywikibot.warning('Add {} template to Commons {}'
-                                          .format('Wikidata Infobox', page.title()))
-                        page.save(summary=pageupdated, minor=True)  # No real content added
-                        # https://doc.wikimedia.org/pywikibot/stable/api_ref/pywikibot.page.html
-                        # https://m.mediawiki.org/wiki/Manual:Pywikibot/Cookbook/Saving_a_single_page
-                        # https://doc.wikimedia.org/pywikibot/master/api_ref/pywikibot.page.html#page.BasePage.save
-                        status = 'Commons'
-
-                    # Add Commons category
-                    if add_item_statement(item, COMMONSCATPROP, commonscat, None):
+                    # Add UNIQUE Commons category
+                    # https://www.wikidata.org/w/index.php?title=Q2239218&diff=2439553874&oldid=2439553580
+                    # https://www.wikidata.org/w/index.php?title=Q2744186&diff=2439555337&oldid=2439553679
+                    if COMMONSCATPROP not in item.claims:
+                        # Register commons category statement
+                        add_item_statement(item, COMMONSCATPROP, commonscat, None, False)
                         status = 'Cat'
+                    elif not item_is_in_list(item.claims[COMMONSCATPROP], [commonscat]):
+                        # Conflicting commons category
+                        commonscat = ''
+
+                # Add Wikidata Infobox to Wikimedia Commons Category
+                # Requires a Wikimedia Commons botflag
+                if commonscat and cbotflag and not WDINFOBOXRE.search(page.text):
+                    ### https://commons.wikimedia.org/wiki/Commons:Bots/Requests/GeertivpBot#GeertivpBot_(overleg_%C2%B7_bijdragen)
+                    # Avoid duplicates and Category redirect
+                    pageupdated = transcmt + ' Add Wikidata Infobox'
+                    # Trim trailing spaces
+                    page.text = '{{Wikidata Infobox}}\n' + re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
+                    pywikibot.warning('Add {} {} to Commons {}'.format(
+                                      homewikitemplatenm, 'Wikidata Infobox', page.title()))
+                    page.save(summary=pageupdated, minor=True)  # No real content added
+                    # https://doc.wikimedia.org/pywikibot/stable/api_ref/pywikibot.page.html
+                    # https://m.mediawiki.org/wiki/Manual:Pywikibot/Cookbook/Saving_a_single_page
+                    # https://doc.wikimedia.org/pywikibot/master/api_ref/pywikibot.page.html#page.BasePage.save
+                    status = 'Commons'
 
             # Add missing Commonscat statements to Wikipedia via queue
             # Wikipedia should have no more than 1 transaction per minute (when not having bot account)
@@ -2454,19 +2727,22 @@ def wd_proc_all_items():
                         and sitelang not in unset_wikis
                         and sitelang not in veto_sitelinks):
                     try:
+                        # Only process Main namespace Wikipedia pages
                         sitelink = item.sitelinks[sitelang]
 
-                        if (sitelink.namespace in {MAINNAMESPACE, CATEGORYNAMESPACE}
+                        # Only allow Wikipedia main namespace
+                        if (sitelink.namespace in {MAINNAMESPACE}   ##, CATEGORYNAMESPACE}
                                 and str(sitelink.site.family) == 'wikipedia'):
                             lang = sitelink.site.lang
 
+                            # Obtain first Wikipedia lemma in any language
                             if not mainwikipediapage:
                                 mainwikipediapage = lang + ':' + sitelink.title
 
                             if lang == 'bh':    # Canonic language names
                                 lang = 'bho'
-                            elif lang == 'no':  # Wikipedia
-                                lang = 'nb'     # Wikidata
+                            elif lang == 'no':  # Wikidata
+                                lang = 'nb'     # Wikipedia
 
                             wpcatpage = ''
                             if not maincat_item:
@@ -2480,6 +2756,7 @@ def wd_proc_all_items():
                                 wpcatpage = maincat_item.labels[lang][maincat_item.labels[lang].find(':') + 1:]
 
                             # Push the record for delayed processing
+                            ##if sitelink.namespace == MAINNAMESPACE:
                             commonscatqueue.append((item, sitelang, item_instance, commonscat, wpcatpage))
 
                             # Add a natural language
@@ -2495,6 +2772,11 @@ def wd_proc_all_items():
 
 # (11) Now store the header changes
             try:
+                # https://www.mediawiki.org/wiki/Manual:Pywikibot/Wikidata
+                ##item.editLabels(labels=item.labels, summary=transcmt, bot=wdbotflag)
+                ##item.editDescriptions(descriptions=item.descriptions, summary=transcmt, bot=wdbotflag)
+                ##item.editAliases(aliases=item.aliases, summary=transcmt, bot=wdbotflag)
+                ### Maximum retries attempted due to maxlag without success.
                 item.editEntity({'labels': item.labels,
                                  'descriptions': item.descriptions,
                                  'aliases': item.aliases}, summary=transcmt, bot=wdbotflag)
@@ -2503,13 +2785,19 @@ def wd_proc_all_items():
                 # WARNING: API error not-recognized-language: The supplied language code "ak" was not recognized.
                 # ERROR: Error saving entity Q4916, Edit to page [[wikidata:Q4916]] failed:
                 # not-recognized-language: The supplied language code "ak" was not recognized.
-                pywikibot.error('Error saving entity {}, {}'.format(qnumber, error))
+                pywikibot.error('Error saving entity {} ({}), {}'.format(label, qnumber, error))
                 pdb.set_trace()
                 status = 'SaveErr'
                 errcount += 1
                 exitstat = max(exitstat, 14)
-                if exitfatal:   # Stop on first error
+                if False:   # Stop on first error
                     raise       # This error might hide more data quality problems
+                    pass
+
+# (18) Items has possibly been updated - Refresh the item labels
+            label = get_item_header(item.labels)            # Get label (refresh label)
+            descr = get_item_header(item.descriptions)      # Get description
+            alias = get_item_header(item.aliases)           # Get alias
 
 # Now process any claims
 
@@ -2524,12 +2812,13 @@ def wd_proc_all_items():
                         target = get_item_page(claim.getTarget())
                         nat_languages.add(target.getID())           # Add a natural language
 
-                        if add_item_statement(item, LANGKNOWPROP, target, None):
+                        if add_item_statement(item, LANGKNOWPROP, target, None, False):
                             status = 'Update'
                 else:
                     status = 'Error'
-                    pywikibot.error('{} is only supported for humans, not for {} ({}) with instance ({})'
-                                    .format(NATIVELANGPROP, label, qnumber, item_instance))
+                    pywikibot.error('{} ({}) is only supported for humans, not for {} ({}) with instance {} ({})'.format(
+                                    get_property_label(NATIVELANGPROP), NATIVELANGPROP,
+                                    label, qnumber, instance_label, item_instance))
 
 # (13) Replicate Taalbeheersing -> Moedertaal
             # If person knows only one single language, we might consider it as a mother tongue
@@ -2537,8 +2826,9 @@ def wd_proc_all_items():
                 pass
             elif item_instance not in HUMANINSTANCE:
                 status = 'Error'
-                pywikibot.error('{} is only supported for humans, not for {} ({}) with instance ({})'
-                                .format(LANGKNOWPROP, label, qnumber, item_instance))
+                pywikibot.error('{} ({}) is only supported for humans, not for {} ({}) with instance {} ({})'
+                                .format(get_property_label(LANGKNOWPROP), LANGKNOWPROP,
+                                        label, qnumber, instance_label, item_instance))
             elif (NATIVELANGPROP not in item.claims
                     and len(item.claims[LANGKNOWPROP]) == 1):
                 target = get_item_page(item.claims[LANGKNOWPROP][0].getTarget())
@@ -2547,7 +2837,7 @@ def wd_proc_all_items():
                 # Add missing natural language
                 if (langid not in nat_languages
                         and INSTANCEPROP in target.claims
-                        and not item_not_in_list(target.claims[INSTANCEPROP], lang_type_list)
+                        and item_is_in_list(target.claims[INSTANCEPROP], lang_type_list)
                         and langid not in artificial_languages):      # Filter non-natural languages like Esperanto
                     nat_languages.add(langid)
 
@@ -2555,7 +2845,7 @@ def wd_proc_all_items():
                 if langid not in nat_languages:
                     status = 'Error'
                     pywikibot.error('Unknown language {}'.format(langid))
-                elif add_item_statement(item, NATIVELANGPROP, target, None):
+                elif add_item_statement(item, NATIVELANGPROP, target, None, False):
                     status = 'Update'
 
             # What can we do with language used?
@@ -2570,21 +2860,32 @@ def wd_proc_all_items():
             for propty in missing_statement:
                 if propty in item.claims and missing_statement[propty] not in item.claims:
                     # Can't automatically repair; only give error message
-                    pywikibot.error('Statement {} ({}) required for property {} ({}) in item {} ({})'
-                                    .format(get_property_label(missing_statement[propty]), missing_statement[propty],
-                                            get_property_label(propty), propty,
-                                            label, qnumber))
+                    pywikibot.error('Statement {} ({}) required for property {} ({}) in item {} ({})'.format(
+                                    get_property_label(missing_statement[propty]), missing_statement[propty],
+                                    get_property_label(propty), propty,
+                                    label, qnumber))
 
 # Add reciproque statements for CEO, and chair
             for propty in ambt_list:
                 if propty in item.claims:
                     for claim in item.claims[propty]:
                         val = claim.getTarget()
-                        addedclaim = add_item_statement(val, AMBTPROP, ambt_list[propty], None)
+                        ### We should replicate the reference here; how??
+                        #pdb.set_trace()
+                        addedclaim = add_item_statement(val, AMBTPROP, ambt_list[propty], None, True)
                         if addedclaim:
-                            qualifier = pywikibot.Claim(repo, QUALIFYFROMPROP)  ## Possibly obsolete??
+                            qualifier = pywikibot.Claim(repo, HASLEADERSHIPOVERPROP)  ## P642 obsolete; could also be jurisdiction
                             qualifier.setTarget(item)
                             addedclaim.addQualifier(qualifier, bot=wdbotflag, summary=transcmt + ' Qualifier of')
+                            pywikibot.warning('Add qualifier {} ({}) {} ({})'.format(
+                                              hasleadershipoverlabel, HASLEADERSHIPOVERPROP,
+                                              get_item_header(item.labels), item.getID()))
+                        # else:
+                            # Complex situation
+                            # https://www.wikidata.org/w/index.php?title=Q27897937&diff=2463105443&oldid=2444965827
+
+### Should handle the reverse statements in the other sence, also
+# https://www.wikidata.org/wiki/Q126292816#P39
 
 # (14) Handle conflicting statements
             doubtfull_items = set()
@@ -2600,17 +2901,17 @@ def wd_proc_all_items():
                         if conf_item:
                             # Can't decide which one is wrong...
                             doubtfull_items.update(conf_item)
-                            pywikibot.warning('Item {} has possible conflict amongst property {}/{} ({}/{}) with {}'
-                                              .format(qnumber,
-                                                      get_property_label(propty),
-                                                      get_property_label(conflicting_statement[propty]),
-                                                      propty, conflicting_statement[propty], conf_item))
+                            pywikibot.warning('Item {} has possible conflict amongst property {}/{} ({}/{}) with {}'.format(
+                                              qnumber, get_property_label(propty),
+                                              get_property_label(conflicting_statement[propty]),
+                                              propty, conflicting_statement[propty], conf_item))
             elif INSTANCEPROP in item.claims:
                 pywikibot.info('Both instance ({}) and subclass ({}) property for item {} ({})'
                                .format(INSTANCEPROP, SUBCLASSPROP, label, qnumber))
 
 # (15) Identify mandatory statements
             for propty in mandatory_relation:
+                # Bidirectional
                 if propty in item.claims:
                     for claim in item.claims[propty]:
                         sitem = claim.getTarget()
@@ -2621,17 +2922,35 @@ def wd_proc_all_items():
                                     or INSTANCEPROP in item.claims
                                         and INSTANCEPROP in sitem.claims
                                         and item.claims[INSTANCEPROP] == sitem.claims[INSTANCEPROP])
-                                        ## Prevent conflictual assignments
-                                        and sitem not in doubtfull_items
-                                and add_item_statement(sitem, mandatory_relation[propty], item, claim.getSources())):
+                                ## Prevent conflictual assignments
+                                and sitem not in doubtfull_items
+                                and add_item_statement(sitem, mandatory_relation[propty], item, claim.getSources(), False)):
                             status = 'Update'
 
-                if (mandatory_relation[propty] in item.claims
-                        and mandatory_relation[propty] not in {propty, CHILDPROP, MAINSUBJECTPROP}):
-                    # Reciproque unidirectional
+                # Reciproque unidirectional
+                if (mandatory_relation[propty] != propty
+                        and mandatory_relation[propty] not in unidirectional_relation_prop
+                        and mandatory_relation[propty] in item.claims):
                     for claim in item.claims[mandatory_relation[propty]]:
                         sitem = claim.getTarget()
-                        if sitem and add_item_statement(sitem, propty, item, claim.getSources()):
+                        if sitem and add_item_statement(sitem, propty, item, claim.getSources(), False):
+                            status = 'Update'
+
+            # Add missing derived statements
+            for propty in derived_statement:
+                if propty in item.claims:
+                    for seq in item.claims[propty]:
+                        val = seq.getTarget()
+                        valcor = val.replace(derived_statement[propty][4], derived_statement[propty][5])       # Canonical ID
+
+                        if val != valcor:
+                            seq.changeTarget(valcor, bot=wdbotflag, summary=transcmt)
+
+                        # Potential duplicates with dot values
+                        if (derived_statement[propty][0] not in item.claims
+                                and valcor.startswith(derived_statement[propty][1])
+                                and add_item_statement(item, derived_statement[propty][0],
+                                        derived_statement[propty][2] + valcor[derived_statement[propty][3]:], None, False)):   ## Reuse reference; assume single value
                             status = 'Update'
 
 # (16) Add symmetric relevant person statements
@@ -2641,43 +2960,40 @@ def wd_proc_all_items():
                 for claim in item.claims[KEYRELATIONPROP]:
                     if (OBJECTROLEPROP in claim.qualifiers
                             # Correspondent
-                            and claim.qualifiers[OBJECTROLEPROP][0].getTarget().getID() == CORRESPONDENTINSTANCE
-                            and (KEYRELATIONPROP not in claim.getTarget().claims
-                                 or not item_is_in_list(claim.getTarget().claims[KEYRELATIONPROP], [qnumber]))):
+                            and claim.qualifiers[OBJECTROLEPROP][0].target.getID() == CORRESPONDENTINSTANCE
+                            and (KEYRELATIONPROP not in claim.target.claims
+                                 or not item_is_in_list(claim.target.claims[KEYRELATIONPROP], [qnumber]))):
 
-                        ### It is not sure that the relationship is symmetric
+                        ### It is not sure that the relationship is always symmetric
                         if False:
-                            claim = pywikibot.Claim(repo, KEYRELATIONPROP)
-                            claim.setTarget(item)
-                            claim.getTarget().addClaim(claim, bot=wdbotflag, summary=transcmt + ' Add symmetric statement')
+                            newclaim = pywikibot.Claim(repo, KEYRELATIONPROP)
+                            newclaim.setTarget(item)
+                            claim.target.addClaim(newclaim, bot=wdbotflag, summary=transcmt + ' Add symmetric statement')
                             for qual in claim.qualifiers:
                                 # Dates can be assymetric, so don't copy them
                                 if qual not in time_props:
                                     qualifier = pywikibot.Claim(repo, qual)
-                                    qualifier.setTarget(claim.qualifiers[qual][0].getTarget())
-                                    claim.addQualifier(qualifier, bot=wdbotflag, summary=transcmt + ' Add symmetric statement')
+                                    qualifier.setTarget(claim.qualifiers[qual][0].target)
+                                    newclaim.addQualifier(qualifier, bot=wdbotflag, summary=transcmt + ' Add symmetric statement')
                                 ### Reuse the reference?
                         else:
-                            pywikibot.info('Possible missing symmetric statement {}:{} {} ({}) to {} ({})'
-                                           .format(KEYRELATIONPROP, CORRESPONDENTINSTANCE,
-                                                   get_item_header(item.labels), qnumber,
-                                                   get_item_header(claim.getTarget().labels), claim.getTarget().getID()))
+                            pywikibot.info('Possible missing symmetric statement {}:{} ({}:{}) {} ({}) to {} ({})'.format(
+                                           get_property_label(KEYRELATIONPROP),
+                                           get_item_header(claim.qualifiers[OBJECTROLEPROP][0].target.labels),
+                                           KEYRELATIONPROP, CORRESPONDENTINSTANCE,
+                                           label, qnumber,
+                                           get_item_header(claim.target.labels), claim.target.getID()))
 
 # (17) Add missing Wikimedia Commons SDC depicts statement
-            #### https://commons.wikimedia.org/wiki/Commons:Bots/Requests/GeertivpBot#GeertivpBot_(overleg_%C2%B7_bijdragen)
-            if cbotflag or newfunctions: add_missing_sdc_depicts(item)
-
-# (18) Items has possibly been updated - Refresh item data
-            label = get_item_header(item.labels)            # Get label (refresh label)
-            descr = get_item_header(item.descriptions)      # Get description
-            alias = get_item_header(item.aliases)           # Get alias
+            ### https://commons.wikimedia.org/wiki/Commons:Bots/Requests/GeertivpBot#GeertivpBot_(overleg_%C2%B7_bijdragen)
+            if newfunctions: add_missing_sdc_depicts(item)
 
 # (19) Asynchronous update Wikipedia pages
-            # Queued update for Wikipedia Commonscat
-            # Aim for 1 non-bot Wikipedia transaction per minute
-            # It will not always be the same Wikipedia language
-            while (commonscatqueue
-                    and (datetime.now() - lastwpedit).total_seconds() > 30.0):
+            # Queued update for Wikipedia Commonscat.
+            # Aim for 1 non-bot Wikipedia transaction per minute.
+            # It will not always be the same Wikipedia language, therefore we shorten the update interval.
+            # Take into account that the update of Wikipedia pages might be delayed.
+            while (commonscatqueue and (datetime.now() - lastwpedit).total_seconds() > 20.0):
                 # Get next record to process
                 addcommonscat = commonscatqueue.pop()
 
@@ -2687,132 +3003,246 @@ def wd_proc_all_items():
                 sitelink = item.sitelinks[sitelang]
 
                 lang = sitelink.site.lang
-                if lang == 'bh':    # Canonic language names
+                if lang == 'bh':    # Canonic Wikipedia language names
                     lang = 'bho'
                 elif lang == 'no':
                     lang = 'nb'
 
                 page = pywikibot.Page(sitelink.site, sitelink.title, sitelink.namespace)
-                while page.isRedirectPage():
-                    ## Should fix the sitelinks
-                    page = page.getRedirectTarget()
-
-                if page.text:
+                # Ignore empty and redirect pages
+                if (page.text and not page.isRedirectPage()):
                     wptemplatenamespace = sitelink.site.namespace(TEMPLATENAMESPACE)
                     if wptemplatenamespace != homewikitemplatenm:
                         wptemplatenamespace += ' (' + homewikitemplatenm + ')'
-                    pageupdated = transcmt + ' Add'
+                    pageupdated = transcmt
                     item_instance = addcommonscat[2]
 
                     # Build template infobox list regular expression
-                    infobox_template = '{{[^{]*Infobox|{{Wikidata|{{Persondata|{{Multiple image|{{Databox'
+                    infobox_template = r'{{[^{]*Infobox|{{Wikidata|{{Persondata|{{Multiple image|{{Databox'
 
-                    if sitelink.namespace == MAINNAMESPACE:
-                        # Add language aliases
-                        if lang in infobox_localname:
-                            for val in infobox_localname[lang]:
-                                if val not in infobox_template:
-                                    infobox_template += '|{{[^{]*' + val
+                    # Check if infobox template exists (strict order; first match)
+                    addinfobox = ''
+                    for propty in [AMBTPROP, PROFESSIONPROP, INSTANCEPROP]:   ### Order is important. Other instances to add?
+                        # https://nl.wikipedia.org/w/index.php?title=Marc_de_Vos_%28beeldhouwer%29&diff=70264240&oldid=68384779
+                        if propty in item.claims:
+                            infoboxpage = None
+                            # It can be necessary to add missing statements for profession, and instances
+                            # To avoid less specific fallback default infoboxes
+                            ##pdb.set_trace()
+                            for seq in item.claims[propty]:
+                                subjectitem = seq.getTarget() # Get next occupation
 
-                        for ibox in range(len(infoboxlist)):
-                            if sitelang in infoboxlist[ibox]:
-                                infobox_template += '|{{' + infoboxlist[ibox][sitelang]
+                                # (1) Get the native template name (one single main template supported)
+                                if MAINTEMPLATEPROP in subjectitem.claims:
+                                    # https://www.wikidata.org/wiki/Q135927110      # Hendrik Orban
+                                    # https://www.wikidata.org/wiki/Property:P106   # beroep
+                                    # https://www.wikidata.org/wiki/Q36180          # schrijver
+                                    # https://www.wikidata.org/wiki/Property:P1424  # main template property
+                                    # https://www.wikidata.org/wiki/Q5615832        # infobox auteur
+                                    for claim in subjectitem.claims[MAINTEMPLATEPROP]:
+                                        # Normally single item -- how could we handle priorities amongst multiple items?
+                                        ### Problem with Q5 Q6249834 instead of Q17534637 (preferred for fr.wiki)
+                                        infoboxitem = claim.getTarget()
+                                        # Check if infobox is registered in Wikidata
+                                        if sitelang in infoboxitem.sitelinks:
+                                            infoboxsitelink = infoboxitem.sitelinks[sitelang]
+                                            if (infoboxsitelink.namespace == TEMPLATENAMESPACE
+                                                    and str(infoboxsitelink.site.family) == 'wikipedia'):
+                                                infoboxpage = pywikibot.Page(infoboxsitelink.site, infoboxsitelink.title, infoboxsitelink.namespace)
+                                                break   # First template match
+                                    if infoboxpage:
+                                        break   # First template match
 
+                            # (2) Fallback: maybe there is a matching language label (if we are lucky)
+                            if not infoboxpage and lang in subjectitem.labels:
+                                infoboxpage = pywikibot.Page(sitelink.site, 'Infobox ' + subjectitem.labels[lang], TEMPLATENAMESPACE)
+
+                            ##pdb.set_trace()
+                            # Infobox template must exists
+                            if infoboxpage and infoboxpage.text:
+                                # Resolve redirects
+                                while infoboxpage.isRedirectPage():
+                                    # Add redirect alias
+                                    infobox_template += r'|{{' + infoboxpage.title().split(':')[1]
+                                    infoboxpage = infoboxpage.getRedirectTarget()
+
+                                # Get the canonical name of the template
+                                addinfobox = infoboxpage.title().split(':')[1]
+                                infobox_template += r'|{{' + addinfobox
+
+                                # Get template qnumber (for info only)
+                                try:
+                                    infoboxqnumber = pywikibot.ItemPage.fromPage(infoboxpage).title()
+                                except:
+                                    infoboxqnumber = ''
+                                    pywikibot.error('Wikidata item number not registered for {} {} {}'.format(
+                                                    lang, wptemplatenamespace, addinfobox))
+
+                                # Add new infobox
+                                pywikibot.info('Discovering {} {} {} ({}) for property {} ({}) of {} ({})'.format(
+                                               lang, wptemplatenamespace, addinfobox, infoboxqnumber,
+                                               get_property_label(propty), propty,
+                                               sitelink.title, item.getID()))
+                                break   # First property match (we can only add one single infobox...)
+
+                    # Add language aliases
+                    if lang in infobox_localname:
+                        for val in infobox_localname[lang]:
+                            infobox_template += r'|{{[^{]*' + val
+
+                    # Add static infobox templates => should be phased out and replaced by preferred infobox from MAINTEMPLATEPROP
+                    for ibox in infoboxlist:
+                        if (sitelang in infoboxlist[ibox]
+                                and infoboxlist[ibox][sitelang] not in infobox_template):
+                            infobox_template += r'|{{' + infoboxlist[ibox][sitelang]
+
+                    if sitelang not in veto_infobox:
                         ## Add imagetemplatelist ??
 
-##Infobox conditioneel maken -- te weinig of te veel statements
+                        ##Make Infobox conditional -- too few or to many statements (by property)
 
-                        # Add an item-specific Wikidata infobox
+                        # (1) Preferred infobox from MAINTEMPLATEPROP
+                        if addinfobox and not re.search(infobox_template, page.text, flags=re.IGNORECASE):
+                            # Add profession infobox
+                            page.text = '{{' + addinfobox + '}}\n' + page.text
+                            pageupdated += ' ' + addinfobox
+                            if (mainlangwiki in infoboxlist[ibox]
+                                    and infoboxlist[ibox][mainlangwiki] != addinfobox):
+                                addinfobox += ' (' + infoboxlist[ibox][mainlangwiki] + ')'
+                            pywikibot.warning('Add primary {} {} to {}:{} ({})'.format(
+                                              wptemplatenamespace, addinfobox,
+                                              lang, sitelink.title, item.getID()))
+
+                        # (2) Add an item instance specific infobox
+                        # Should be replaced by MAINTEMPLATEPROP
                         len_specific_infoboxes = len(instance_types_by_category)
                         for ibox in range(len_specific_infoboxes):
-                            if (sitelang in infoboxlist[ibox]     ## Hardcoded
+                            ## Depends on len(instance_types_by_category)
+                            if (sitelang in infoboxlist[ibox]     ## Hardcoded and aligned...
                                     and item_instance in instance_types_by_category[ibox]
-                                    and not re.search(infobox_template,
-                                                      page.text, flags=re.IGNORECASE)):
+                                    and not re.search(infobox_template, page.text, flags=re.IGNORECASE)):
                                 addinfobox = infoboxlist[ibox][sitelang]
                                 page.text = '{{' + addinfobox + '}}\n' + page.text
                                 pageupdated += ' ' + addinfobox
                                 if (mainlangwiki in infoboxlist[ibox]
                                         and infoboxlist[ibox][mainlangwiki] != addinfobox):
                                     addinfobox += ' (' + infoboxlist[ibox][mainlangwiki] + ')'
-                                pywikibot.warning('Add {} {} to {}'
-                                                  .format(wptemplatenamespace, addinfobox, sitelang))
+                                pywikibot.warning('Add secondary {} {} to {}:{} ({})'.format(
+                                                  wptemplatenamespace, addinfobox,
+                                                  lang, sitelink.title, item.getID()))
                                 break
 
-                        # Add general Wikidata infobox, if there was no specific one
-                        ## Depends on len(instance_types_by_category)
-                        if (sitelang in infoboxlist[len_specific_infoboxes]
-                                and not re.search(infobox_template,
-                                                  page.text, flags=re.IGNORECASE)):
+                        # (3) Add general Wikidata infobox, if there was no specific one
+                        # Should be replaced by MAINTEMPLATEPROP
+                        if (sitelang in infoboxlist[len_specific_infoboxes]     # infoboxlist[2]
+                                and not re.search(infobox_template, page.text, flags=re.IGNORECASE)):
+                            # Needs to be contiguous with previous list...
+                            ## Depends on len(instance_types_by_category)
                             addinfobox = infoboxlist[len_specific_infoboxes][sitelang]
                             page.text = '{{' + addinfobox + '}}\n' + page.text
                             pageupdated += ' ' + addinfobox
                             if (mainlangwiki in infoboxlist[len_specific_infoboxes]
                                     and infoboxlist[len_specific_infoboxes][mainlangwiki] != addinfobox):
                                 addinfobox += ' (' + infoboxlist[len_specific_infoboxes][mainlangwiki] + ')'
-                            pywikibot.warning('Add {} {} to {}'
-                                              .format(wptemplatenamespace, addinfobox, sitelang))
+                            pywikibot.warning('Add generic {} {} to {}:{} ({})'.format(
+                                              wptemplatenamespace, addinfobox,
+                                              lang, sitelink.title, item.getID()))
 
                     # Add one P18 missing image on the Wikipedia page
                     # https://doc.wikimedia.org/pywikibot/stable/api_ref/pywikibot.site.html#pywikibot.site._apisite.APISite.namespace
                     # Could we have other image or video properties?
                     # Could we have sound/video files?
                     # Could be applied in any namespace where items have Wikidata media files
-                    if IMAGEPROP in item.claims and lang in item.labels:
-                        # Get the first image from Wikidata
-                        image_page = item.claims[IMAGEPROP][0].getTarget()
+                    if sitelang == 'dewiki': pdb.set_trace()
+                    
+                    if IMAGEPROP in item.claims and sitelang not in veto_images:
+                        # Get only the first image from Wikidata
+                        ## Could we possibly improve the logic?
+                        first_image = item.claims[IMAGEPROP][0]
+                        image_page = first_image.getTarget()
                         image_name = image_page.title()
-                        file_name = image_name.split(':', 1)
+                        file_name = image_name.split(':', 1)[1]
                         wpfilenamespace = sitelink.site.namespace(FILENAMESPACE)
-                        image_name = wpfilenamespace + ':' + file_name[1]
-                        file_name_re = file_name[1].replace('(', r'\(').replace(')', r'\)')
-
-                        file_template = r'\[\[' + wpfilenamespace + r':|\[\[File:|\[\[Image:|<gallery|</gallery>'
+                        image_name = wpfilenamespace + ':' + file_name
+                        file_name_re = file_name.replace('(', r'\(').replace(')', r'\)')
+                        file_template = r'\[\[' + wpfilenamespace + r':|\[\[File:|\[\[Image:|<gallery|</gallery>|\.jpg|\.jpeg|\.png|\.webp'
 
                         # Add language aliases
                         if lang in file_localname:
                             for val in file_localname[lang]:
-                                if val not in file_template:
-                                    file_template += r'|\[\[' + val + ':'
+                                file_template += r'|\[\[' + val + ':'
 
                         # Only add a first image, no image when there is an infobox
                         if not re.search(file_template
-                                         + '|' + infobox_template  # Maybe this restriction is too hard
-                                         # no File: because of possible Infobox parameter and gallery with automatic Wikidata image
+                                         + '|' + infobox_template  # Maybe this restriction is too hard (there are Infobox templates not having images)
+                                         # no File: because of possible gallery or Infobox parameter with automatic Wikidata image
                                          + '|' + file_name_re,
                                          page.text, flags=re.IGNORECASE):
+                            
+                            ## Why is the image not added here?
+                            # https://de.wikipedia.org/wiki/SABIN
+
+                            ## Duplicate images with unregistered infoboxes
+                            # https://gl.wikipedia.org/w/index.php?title=Plan_9&diff=prev&oldid=7321508
 
                             # Determine local thumb name
                             # https://phabricator.wikimedia.org/T354230
+                            # https://doc.wikimedia.org/pywikibot/stable/_modules/pywikibot/site/_apisite.html#APISite.getmagicwords
                             image_flag = sitelink.site.getmagicwords('img_thumbnail')[0]
 
-                            # Add translated 'upright' if height > 1.44 * width
                             try:
+                                # Add translated 'upright' if height > 1.44 * width
                                 file_info = image_page.latest_file_info.__dict__
                                 file_height = file_info['height']
                                 file_width = file_info['width']
                                 if file_height > file_width * 1.44:
                                     image_flag += '|' + sitelink.site.getmagicwords('img_upright')[0]
                             except:
-                                pass    # Image size missing or incomplete
+                                pass    # Image size missing or incomplete, so we can't decide
 
-                            # Bots are not eligible, but it helps to track updates
-                            pageupdated += ' image #WPWP #WPWPBE'
-                            # Required: item language label
-                            image_thumb = '[[{}|{}|{}]]'.format(image_name, image_flag, item.labels[lang])
+                            # We should accept images without labels
+                            image_label = ''
+
+                            # Get language label
+                            if lang in item.labels:
+                                image_label = item.labels[lang]
+
+                            try:
+                                # Get image caption, typically not available
+                                image_captions = first_image.toJSON()['qualifiers']['P2096']
+                                for val in image_captions:
+                                    # Search the right language
+                                    if val['datavalue']['value']['language'] == lang:
+                                        image_label = val['datavalue']['value']['text']
+                                        break
+                            except:
+                                pass
+
+                            image_thumb = '[[{}|{}|{}]]'.format(image_name, image_flag, image_label)
 
                             # Verify header offset
                             headsearch = PAGEHEADRE.search(page.text)
-                            if headsearch and re.search(infobox_template,
-                                                        page.text, flags=re.IGNORECASE):
-                                # Insert the picture after first head two, to allow for future infobox on top of the page
+                            if headsearch:
+                                # Insert the picture after first head, to allow for infobox at the top of the page
                                 headoffset = headsearch.end()
                                 page.text = page.text[:headoffset] + '\n' + image_thumb + page.text[headoffset:]
                             else:
+                                ## Could we possibly add more logic for image placement?
                                 # Put image top of page
                                 page.text = image_thumb + '\n' + page.text
-                            pywikibot.warning('Add media {} to {} {}:{}'
-                                              .format(image_name, sitelang, lang, sitelink.title))
+
+                            # Bots are not eligible, but it helps to track updates
+                            pageupdated += ' image #WPWP #WPWPBE'
+                            pywikibot.warning('Add media {} to {} {}:{} ({})'.format(
+                                              image_name, sitelang, lang, sitelink.title, item.getID()))
+
+                            # Should verify manually if photo is really visible in infobox
+                            if sitelang in template_imagewanted:
+                                page_cleaned = re.sub(r'{{' + template_imagewanted[sitelang] + '}}\n*', '', page.text, flags=re.IGNORECASE)
+                                if page_cleaned != page.text:
+                                    page.text = page_cleaned
+                                    pageupdated += ' photo available'
+                                    pywikibot.warning('Photo {} available'.format(file_name))
 
                     # Templates processing in normal order
                     inserttext = ''
@@ -2825,7 +3255,7 @@ def wd_proc_all_items():
                     # </references> must be first in order to avoid placement of redundant reference template
                     find_reference = '</references>|<references/>|<references />'
 
-                    for ibox in range(len(referencelist)):
+                    for ibox in referencelist:
                         if sitelang in referencelist[ibox]:
                             # Take last reference template
                             reftemplate = '{{' + referencelist[ibox][sitelang] + '}}'
@@ -2843,47 +3273,47 @@ def wd_proc_all_items():
                         if (mainlangwiki in referencelist[ibox]
                                 and '{{' + referencelist[ibox][mainlangwiki] + '}}' != reftemplate):
                             reftemplate += ' (' + referencelist[ibox][mainlangwiki] + ')'
-                        pywikibot.warning('Add {} {} to {}'
-                                          .format(wptemplatenamespace, reftemplate, sitelang))
+                        pywikibot.warning('Add {} {} to {}'.format(
+                                          wptemplatenamespace, reftemplate, sitelang))
 
                     # Add an Authority control template for humans (+ other entities?)
-                    if (item_instance in HUMANINSTANCE
+                    if (item_instance in REALHUMANINSTANCE
                             and sitelang in authoritylist[0]):
-                        skip_authority = '{{Authority control'
+                        skip_authority = '{{Authority control|' + authoritylist[0][sitelang]
+                        # https://az.wikipedia.org/w/index.php?title=Stiv_Mettison&diff=8245304&oldid=8245266
 
-                        for ibox in range(len(authoritylist)):
+                        for ibox in authoritylist:
                             if sitelang in authoritylist[ibox]:
                                 skip_authority += '|{{' + authoritylist[ibox][sitelang]
 
-                        if not re.search(skip_authority,
-                                         page.text, flags=re.IGNORECASE):
+                        if not re.search(skip_authority, page.text, flags=re.IGNORECASE):
                             authoritytemplate = authoritylist[0][sitelang]
                             authoritytext += '{{' + authoritytemplate + '}}'
                             pageupdated += ' ' + authoritytemplate
                             if mainlangwiki in authoritylist[0] and authoritylist[0][mainlangwiki] != authoritytemplate:
                                 authoritytemplate += ' (' + authoritylist[0][mainlangwiki] + ')'
-                            pywikibot.warning('Add {} {} to {}'
-                                              .format(wptemplatenamespace, authoritytemplate, sitelang))
+                            pywikibot.warning('Add {} {} to {}:{} ({})'.format(
+                                              wptemplatenamespace, authoritytemplate, lang, sitelink.title, item.getID()))
 
                     # Build portal template list regular expression
                     portal_template = '{{Portal|{{Navbox'
-                    for ibox in range(len(portallist)):
+                    for ibox in portallist:
                         if sitelang in portallist[ibox]:
                             portal_template += '|{{' + portallist[ibox][sitelang]
 
                     # To locate insert position
-                    for ibox in range(3):
+                    for ibox in range(3):   # HARDCODED: see authoritylist
                         if sitelang in authoritylist[ibox]:
                             portal_template += '|{{' + authoritylist[ibox][sitelang]
 
                     # Prepare Commons Category logic
                     skip_commonscat = '{{Commons|' + portal_template
-                    for ibox in range(len(commonscatlist)):
+                    for ibox in commonscatlist:
                         if sitelang in commonscatlist[ibox]:
                             skip_commonscat += '|{{' + commonscatlist[ibox][sitelang].split('|')[0]
 
                     # No Commonscat for Interproject links
-                    for ibox in {1, 2}:
+                    for ibox in [1, 2]:
                         if sitelang in authoritylist[ibox]:
                             skip_commonscat += '|{{' + authoritylist[ibox][sitelang]
 
@@ -2929,9 +3359,9 @@ def wd_proc_all_items():
                         pageupdated += ' [[c:Category:{1}|{0} {1}]]'.format(commonscattemplate, wpcommonscat)
                         if mainlangwiki in commonscatlist[0] and commonscatlist[0][mainlangwiki] != commonscattemplate:
                             commonscattemplate += ' (' + commonscatlist[0][mainlangwiki] + ')'
-                        pywikibot.warning('Add {} {} {} to {}:{}'
-                                          .format(wptemplatenamespace, commonscattemplate,
-                                                  wpcommonscat, lang, sitelink.title))
+                        pywikibot.warning('Add {} {} {} to {}:{} ({})'.format(
+                                          wptemplatenamespace, commonscattemplate,
+                                          wpcommonscat, lang, sitelink.title, item.getID()))
 
                     sort_words = sitelink.site.getmagicwords('defaultsort')
                     # UK sort_words
@@ -2942,13 +3372,15 @@ def wd_proc_all_items():
                     if sort_word[-1] != ':':
                         sort_word += ':'
 
+                    # Default sort
                     sort_template = '{{DEFAULTSORT:'
                     for val in sort_words:
                         if val[-1] != ':':
                             val += ':'
                         sort_template += '|{{' + val
 
-                    if item_instance in HUMANINSTANCE and sitelang not in veto_defaultsort:
+                    if (item_instance in HUMANINSTANCE
+                            and sitelang not in veto_defaultsort):
                         try:
                             # Only use DEFAULTSORT when having one single lastname
                             if (len(item.claims[LASTNAMEPROP]) == 1
@@ -2963,6 +3395,7 @@ def wd_proc_all_items():
                                     firstname += ' ' + claim.getTarget().labels[lang]
                                 sortorder = lastname + ',' + firstname
 
+                                # Lifetime Template
                                 skip_defaultsort = ''
                                 if sitelang in authoritylist[3]:
                                     skip_defaultsort = '|{{' + authoritylist[3][sitelang]
@@ -2973,9 +3406,9 @@ def wd_proc_all_items():
                                     pageupdated += ' ' + sort_word
                                     if 'DEFAULTSORT:' != sort_word:
                                         sort_word += ' (DEFAULTSORT) '
-                                    pywikibot.warning('Add {} {}{} to {}'
-                                                      .format(wptemplatenamespace, sort_word,
-                                                              sortorder, sitelang))
+                                    pywikibot.warning('Add {} {}{} to {}:{} ({})'.format(
+                                                      wptemplatenamespace, sort_word,
+                                                      sortorder, lang, sitelink.title, item.getID()))
                         except:
                             pass    # No firstname, or no lastname
 
@@ -2995,18 +3428,18 @@ def wd_proc_all_items():
                             categorytext += '\n'
                         categorytext += '[[' + wpcatnamespace + ':' + wpcatpage + ']]'
                         pageupdated += ' [[:{}:{}]]'.format(wpcatnamespace, wpcatpage)
-                        pywikibot.warning('Add {}:{} ({}) to {}:{}'
-                                          .format(wpcatnamespace, wpcatpage,
-                                                  'Category',       ## Should be mainlang
-                                                  sitelang, sitelink.title))
+                        pywikibot.warning('Add {}:{} ({}) to {}:{} ({})'.format(
+                                          wpcatnamespace, wpcatpage,
+                                          'Category',       ## Should be mainlang
+                                          sitelang, sitelink.title, item.getID()))
 
                     # Save page when updated
-                    if pageupdated == transcmt + ' Add':
+                    if pageupdated == transcmt:
                         pass                # Nothing changed
-                    elif pageupdated == transcmt + ' Add ' + referencetext:
+                    elif pageupdated == transcmt + ' ' + referencetext:
                         # Ignore changes, if only a reference template was added
                         pywikibot.warning('Skipping trivial changes for {}:{} ({})'
-                                          .format(lang, get_item_header(item.labels), item.getID()))
+                                          .format(lang, sitelink.title, item.getID()))
                     else:
                         # Insert commonscat text for Deutsch
                         if sitelang not in commonssection:
@@ -3024,24 +3457,24 @@ def wd_proc_all_items():
                         elif referencetext:
                             inserttext = referencetext
 
-                        # Insert authority text
-                        if inserttext and authoritytext:
-                            inserttext += '\n' + authoritytext
-                        elif authoritytext:
-                            inserttext = authoritytext
-
                         if inserttext:
                             # Portal template has precedence on first Category
+                            # https://docs.python.org/3/library/re.html#re.match.start
+                            # https://docs.python.org/3/library/re.html#finding-all-adverbs
                             navsearch = re.search(portal_template, page.text, flags=re.IGNORECASE)
 
                             # Insert the text at the best location
                             if (reftemplate != '<references/>' and refreplace and refreplace.group(0).startswith('<references')
                                     and sitelang not in veto_references):
                                 # Replace <references/>
+                                if page.text[refreplace.end():] and page.text[refreplace.end():][0] != '\n':
+                                    inserttext += '\n'
                                 page.text = page.text[:refreplace.start()] + inserttext + page.text[refreplace.end():]
                                 inserttext = ''
                             elif refreplace:
                                 # Insert after references
+                                if page.text[refreplace.end():] and page.text[refreplace.end():][0] != '\n':
+                                    inserttext += '\n'
                                 page.text = page.text[:refreplace.end()] + '\n' + inserttext + page.text[refreplace.end():]
                                 inserttext = ''
                             elif navsearch:
@@ -3059,11 +3492,17 @@ def wd_proc_all_items():
 
                         # Insert commonscat text for most Wikipedia languages
                         if sitelang in commonssection:
-                            pass
+                            pass                # Not for Deutsch
                         elif inserttext and commonstext:
                             inserttext += '\n' + commonstext
                         elif commonstext:
                             inserttext = commonstext
+
+                        # Insert authority text
+                        if inserttext and authoritytext:
+                            inserttext += '\n' + authoritytext
+                        elif authoritytext:
+                            inserttext = authoritytext
 
                         # Now possibly insert text for category, possibly remaining insert text
                         if inserttext and categorytext:
@@ -3075,9 +3514,10 @@ def wd_proc_all_items():
                             # Locate the first Category
                             # https://www.wikidata.org/wiki/Property:P373
                             # https://www.wikidata.org/wiki/Q4167836
-                            catsearch = re.search(skip_commonscat + sort_template
+                            # https://tr.wikipedia.org/w/index.php?title=Zara_Larsson&diff=36846194&oldid=36828694
+                            catsearch = re.search(sort_template
                                                   + r'|\[\[' + wpcatnamespace
-                                                  + r':|\[\[Category:',
+                                                  + r':|\[\[Category:|' + skip_commonscat,
                                                   page.text, flags=re.IGNORECASE)
                             if catsearch:
                                 # Insert DEFAULTSORT and/or category
@@ -3090,7 +3530,7 @@ def wd_proc_all_items():
 
                         ### Problem with DEFAULTSORT not addded if status == 'Update' ??
 
-                        # We do't change the DEFAULTSORT word
+                        # We do't change the DEFAULTSORT word (which is a standaard tag, anyway)
                         if False and sort_word != 'DEFAULTSORT:':   ## disabled
                             page.text = re.sub(r'{{DEFAULTSORT:', '{{' + sort_word, page.text)
 
@@ -3099,36 +3539,45 @@ def wd_proc_all_items():
                         # https://be.wikipedia.org/w/index.php?title=Канал_Грыбаедава&diff=next&oldid=4653417
                         page.text = re.sub(r' [ \t\r\f\v]+$', ' ', page.text, flags=re.MULTILINE)
 
-                        # Remove redundant empty lines
+                        # Remove redundant empty lines (to not disturb the layout of the page)
                         page.text = re.sub(r'\n\n+', '\n\n', page.text)
 
-                        # Remove useless code (bug in Visual editor)
-                        page.text = re.sub(r'<nowiki/>', '', page.text)
-
-                        if NOWIKIRE.search(page.text):
-                            pywikibot.warning('<nowiki> tag found')
-
-                        # Remove redundant spaces
-                        page.text = re.sub(r'[.] +', '. ', page.text)               # Merge spaces after dot
+                        # Remove redundant whitespace (order is important)
+                        # Should recode to use compiled Regex, when possible
+                        page.text = re.sub(r'[.] +', '. ', page.text)               # Merge spaces after dot (reformat typewriter dot)
                         page.text = re.sub(r' +</ref>', '</ref> ', page.text)       # No spaces before /ref
-                        page.text = re.sub(r'</ref> +', '</ref> ', page.text)       # Single spaces after references
+                        page.text = re.sub(r'</ref> +', '</ref> ', page.text)       # Merge spaces after references
                         page.text = re.sub(r'</ref> [.]', '</ref>.', page.text)     # No trailing space after reference
-
                         page.text = re.sub(r'<ref> +', '<ref>', page.text)          # No spaces after ref
-                        page.text = re.sub(r' +<ref>', ' <ref>', page.text)         # Single space before ref
-                        if sitelang not in veto_spacebeforeref:
+                        page.text = re.sub(r' +<ref>', ' <ref>', page.text)         # Merge spaces before ref
+
+                        if sitelang not in veto_spacebeforeref:                     # Some Wikipedias keep a space before <ref>
                             page.text = re.sub(r' <ref>', '<ref>', page.text)       # No space before ref
 
+                        # https://www.mediawiki.org/wiki/Help:Magic_words
+                        # https://nl.wikipedia.org/wiki/Wikipedia:De_kroeg#ISBN_magische_links
+                        # https://en.wikipedia.org/wiki/Help:Magic_links
+                        # https://www.geeksforgeeks.org/python/re-sub-python-regex/#using-groups-in-resub
+                        page.text = re.sub(ISBNRE, r'{{ISBN|\1}}', page.text)       # Replace ISBN numbers by template
+                        page.text = re.sub(r'}}{{', '}}\n{{', page.text)            # Put templates on separate lines
+
+                        # Remove useless code (bug in Visual editor)
+                        ##page.text = re.sub(r'<nowiki/>', '', page.text)
+
+                        # Sometimes <nowiki> is a bug of the visual editor; sometimes it is intended behaviour.
+                        nowiki_tages = NOWIKIRE.search(page.text)
+                        if nowiki_tages:
+                            pywikibot.warning('{} tags found'.format(nowiki_tages))
+
                         try:
-                            # We can save not the updates
-                            pywikibot.warning('Saving {}:{} ({})'
-                                              .format(lang, get_item_header(item.labels), item.getID()))
+                            # We can finally save the updates
+                            pywikibot.warning('Saving {}:{} ({})'.format(lang, sitelink.title, item.getID()))
                             page.save(summary=pageupdated)      # Bot flag is automatic
-                            lastwpedit = datetime.now()
+                            lastwpedit = datetime.now()     # Delay the next update
                         except Exception as error:
-                            # Ignore Wikipedia errors
-                            pywikibot.error('Error saving Wikipedia page {}:{} ({}), {}'
-                                            .format(lang, get_item_header(item.labels), item.getID(), error))
+                            # Avoid fatal error for list of items/pages
+                            pywikibot.error('Error saving Wikipedia page {}:{} ({}), {}'.format(
+                                            lang, sitelink.title, item.getID(), error))
 
 # (20) Error handling
         except KeyboardInterrupt:
@@ -3138,7 +3587,8 @@ def wd_proc_all_items():
 
         except AttributeError as error:
             pywikibot.error(error)      # NoneType error
-            pdb.set_trace()
+            ##pdb.set_trace()
+            ##raise
             # https://www.wikidata.org/wiki/Q17382244#P2562
             status = 'NoneType'
             errcount += 1
@@ -3166,7 +3616,10 @@ def wd_proc_all_items():
             #raise
 
         except pywikibot.exceptions.MaxlagTimeoutError as error:    # Attempt error recovery
-            pywikibot.error('Error updating {}, {}'.format(qnumber, error))
+            # https://grafana.wikimedia.org/d/TUJ0V-0Zk/wikidata-alerts
+            # Max p95 Execute Time for Write Modules
+            pywikibot.error('{}\tError updating {} ({}), {}'.format(
+                    datetime.now().strftime(DATEFMT), label, qnumber, error))
             status = 'Maxlag'	        # System overloaded; need to wait
             errcount += 1
             exitstat = max(exitstat, 20)
@@ -3181,14 +3634,15 @@ def wd_proc_all_items():
                 time.sleep(errsleep)
 
         except Exception as error:      # other exception to be used
-            pywikibot.error('Error processing {}, {}'.format(qnumber, error))
-            ###raise
-            pdb.set_trace()
+            pywikibot.error('{}\tError processing {} ({}), {}'.format(
+                    datetime.now().strftime(DATEFMT), label, qnumber, error))
             status = 'Error'	        # Handle any generic error
             errcount += 1
             exitstat = max(exitstat, 20)
-            if exitfatal:               # Stop on first error
+            pdb.set_trace()
+            if False and exitfatal:               # Stop on first error
                 raise
+                pass
 
         """
         The transaction was either executed correctly, or an error occurred.
@@ -3201,12 +3655,13 @@ def wd_proc_all_items():
         now = datetime.now()	    # Refresh the timestamp to time the following transaction
 
         if True or status not in {'OK'}:		# Print transaction results
-            isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Needed to format output
+            isotime = now.strftime(DATEFMT) # Needed to format output
             totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
-            pywikibot.info('{:d}\t{}\t{:.3f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'
-                           .format(transcount, isotime, totsecs, status,
-                                   qnumber, label, mainwikipediapage,
-                                   commonscat, alias, nationality, birthday, deathday, descr))
+            pywikibot.info('{:d}\t{}\t{:.3f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'.format(
+                           transcount, isotime, totsecs,
+                           instance_label, status,
+                           qnumber, label, mainwikipediapage,
+                           commonscat, alias, nationality, birthday, deathday, descr))
 
 
 def show_help_text():
@@ -3281,36 +3736,46 @@ try:
     pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
 except:
     shell = False
-    pywikibot.info('{}, {}, {}, {} ({})'
-                   .format(modnm, pgmid, pgmlic, creator, 'No shell available'))
+    pywikibot.info('{}, {}, {}, {} ({})'.format(
+                   modnm, pgmid, pgmlic, creator, 'No shell available'))
 
-"""
-    Start main program logic
-    Precompile the Regular expressions, once (for efficiency reasons; they will be used in loops)
-"""
-
+# Precompile the Regular expressions, once (for efficiency reasons; they will be used in loops)
+# https://www.w3schools.com/python/ref_module_re.asp
+CATEGORYRE = re.compile(r'\[\[Category:')    # Category
 HELPRE = re.compile(r'^(.*\n)+\nDocumentation:\n\n(.+\n)+')  # Help text
+ISBNRE = re.compile(r'ISBN +([0-9 X–-]{10,17})')    # Replace by template
 LANGRE = re.compile(r'^[a-z]{2,3}$')        # Verify for valid ISO 639-1 language codes
 NAMEREVRE = re.compile(r',(\s*.*)*$')	    # Reverse lastname, firstname
-NOWIKIRE = re.compile(r'<nowiki>')  	    # Reverse lastname, firstname
+NONROMANRE = re.compile(r'[^a-z/0-9() .,"\'åáàâäāæǣçéèêëėíìîïıńñŋóòôöœøřśßúùûüýÿĳ-]', flags=re.IGNORECASE)        # Roman alphabet (– not included)
+NOWIKIRE = re.compile(r'</?nowiki/?>')  	# Warning for possible redundant nowiki constructs <nowiki/> <nowiki> </nowiki>
 PSUFFRE = re.compile(r'\s*\(.*\)$')		    # Remove trailing () suffix (keep only the base label)
 PAGEHEADRE = re.compile(r'(==.+==)')        # Page headers with templates
 QSUFFRE = re.compile(r'Q[0-9]+')            # Q-number
 REFTAGRE = re.compile(r'<ref>(.+)</ref>')   # Require reference tag
-ROMANRE = re.compile(r'^[a-z/0-9() .,"\'åáàâäāæǣçéèêëėíìîïıńñŋóòôöœøřśßúùûüýÿĳ-]{2,}$', flags=re.IGNORECASE)        # Roman alphabet
 SHORTDESCRE = re.compile(r'{{Short description\|(.+)}}', flags=re.IGNORECASE)
 
 # Commons Category + Wikidata infobox
-COMMONSCATREDIRECTRE = re.compile(r'{{Category|{{Cat disambig|{{Catredir|Cat-redirect', flags=re.IGNORECASE)    # Including: Category redirect
+COMMONSCATREDIRECTRE = re.compile(r'{{Category|{{Cat disambig|{{Catredir|{{Cat-redirect|{{Disambiguation', flags=re.IGNORECASE)    # Including: Category redirect
 WDINFOBOXRE = re.compile(r'{{Wikidata infobox', flags=re.IGNORECASE)
+
+# Initial list of natural languages
+# Augmented from the lang_qnumbers list above
+# Others will be added automatically during script execution (global variable)
+nat_languages = {'Q150', 'Q188', 'Q652', 'Q1321', 'Q1860', 'Q7411'}
+
+# Disabled wikis, ignored for processing
+unset_wikis = {
+    ##'cbkwiki',          # Bot only site (why should we exclude it?)
+    'zh_yuewiki',       # obsolete
+}
+
+# Determine mainlang and language list
+main_languages = get_language_preferences()
+mainlang = main_languages[0]
 
 inlang = '-'
 while sys.argv and inlang.startswith('-'):
     inlang = get_next_param().lower()
-
-# Get language list
-main_languages = get_language_preferences()
-mainlang = main_languages[0]
 
 if LANGRE.search(inlang):
     mainlang = inlang
@@ -3318,8 +3783,15 @@ else:
     inlang = mainlang
 
 mainlangwiki = mainlang + 'wiki'
+if mainlang == 'bh':    # Canonic language names
+    mainlang = 'bho'
+elif mainlang == 'no':  # Wikidata
+    mainlang = 'nb'     # Wikipedia
+
 if mainlang not in main_languages:
     main_languages.insert(0, mainlang)
+if mainlang not in all_languages:
+    all_languages.add(mainlang)
 
 # Add additional languages from parameters
 while sys.argv:
@@ -3336,7 +3808,28 @@ if inlang not in veto_languages:
     if inlang not in all_languages:
         all_languages.add(inlang)
 
+try:
+    # Connect to databases
+    site = pywikibot.Site('commons')
+    site.login()
+    cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
+    newfunctions = cbotflag    # New functions
+
+    # This script requires a bot flag
+    repo = site.data_repository()
+    repo.login()
+    wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
+
+    # Get local template namespace name
+    homewiki = pywikibot.Site(mainlang, 'wikipedia')
+    homewiki.login()
+    homewikibotflag = 'bot' in pywikibot.User(homewiki, homewiki.user()).groups()
+except Exception as error:
+    # Other exception to be used
+    fatal_error(20, 'Wikimedia error, {}'.format(error))
+
 # Print preferences
+##pdb.set_trace()
 pywikibot.log('Languages:\t{} {}'.format(mainlang, main_languages))
 pywikibot.log('Maximum delay:\t{:d} s'.format(maxdelay))
 pywikibot.log('Use labels:\t{}'.format(uselabels))
@@ -3345,37 +3838,27 @@ pywikibot.log('Force copy:\t{}'.format(forcecopy))
 pywikibot.log('Exit on fatal error:\t{}'.format(exitfatal))
 pywikibot.log('Error wait factor:\t{:d}'.format(errwaitfactor))
 
-# Connect to databases
-site = pywikibot.Site('commons')
-site.login()
-cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
-
-# This script requires a bot flag
-repo = site.data_repository()
-repo.login()
-wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
-
-# Get local template namespace name
-homewiki = pywikibot.Site(mainlang, 'wikipedia')
-homewiki.login()
-homewikibotflag = 'bot' in pywikibot.User(homewiki, homewiki.user()).groups()
-
 # List of official function items
 ambt_list = {
-    CEOPROP: pywikibot.ItemPage(repo, 'Q484876'),
-    CHAIRPROP: pywikibot.ItemPage(repo, 'Q1255921'),
-    DIRECTORPROP: pywikibot.ItemPage(repo, 'Q1162163'),
+    CEOPROP: get_item_page('Q484876'),       # CEO, bestuursvoorzitter
+    CHAIRPROP: get_item_page('Q1255921'),    # chair
+    DIRECTORPROP: get_item_page('Q1162163'), # director
+    ##SCABINUSPROP: get_item_page('Q1218704'), # scabinus
 }
 
 # Get Wikimedia labels in the local language
-pywikibot.info('Loading local language labels')
+# Q478798   # Image
 infobox_localname = get_item_label_dict('Q15515987')    # Infobox
 
 # https://ast.wikipedia.org/w/index.php?title=Conventu&diff=4106220&oldid=3704719
 ### https://www.wikidata.org/w/index.php?title=Q82753&diff=2044443528&oldid=2012500870
 file_localname = get_item_label_dict('Q82753')          # File
 
+# Get property labels
 representationtypelabel = get_property_label(REPRESENTATIONTYPEPROP)
+hasleadershipoverlabel = get_property_label(HASLEADERSHIPOVERPROP)
+
+# Get namespaces
 homewikitemplatenm = homewiki.namespace(TEMPLATENAMESPACE)
 
 """
@@ -3400,14 +3883,20 @@ for lang in veto_languages:
     if lang in lang_qnumbers:   # comment to check completeness
         veto_languages_id.add(lang_qnumbers[lang])
 
+# Preload from Wikidata template metadata
 # Load list of infoboxes automatically (first 4 must be in strict sequence)
+# => should be phased out and replaced by preferred infobox from MAINTEMPLATEPROP
 dictnr = 0
 infoboxlist = {}
 for item_dict in sitelink_dict_list:
     infoboxlist[dictnr] = get_wikipedia_sitelink_template_dict(item_dict)
     dictnr += 1
 
-# Manual corrections
+# LUA errors
+del(infoboxlist[2]['mtwiki'])   # https://mt.wikipedia.org/w/index.php?title=Chichén_Itzá&diff=328753&oldid=315231 {{Wikidata Infobox}} (Q47517487)
+                                # Lua error in Module:WikidataIB at line 1498: assign to undeclared variable 'parttbl'.Q47517487
+del(infoboxlist[3]['ocwiki'])   # https://oc.wikipedia.org/w/index.php?title=David_Hallyday&diff=next&oldid=2481741 {{Infobox Biografia2}} (Q17534637)' Infobox person Wikidata
+                                # Error de Lua a package.lua a la línia 80: module 'Mòdul:Diccionari Wikidata/Grades militars' not found.
 
 # Swap and merge Wikidata boxes (index 0 and 3)
 for sitelang in infoboxlist[3]:
@@ -3417,36 +3906,25 @@ for sitelang in infoboxlist[3]:
         infoboxlist[3][sitelang] = swapinfobox
     else:
         infoboxlist[0][sitelang] = infoboxlist[3][sitelang]
-        ###del(infoboxlist[3][sitelang])    # RuntimeError: dictionary changed size during iteration
+        ###del(infoboxlist[3][sitelang])    # RuntimeError: dictionary changed size during iteration (no harm if duplicated)
 
-# Disallow empty boxes (where no Wikidata statements are implemented)
-infoboxlist[dictnr] = {}
-for sitelang in veto_infobox:
-    infoboxlist[dictnr][sitelang] = infoboxlist[0][sitelang]
-    del(infoboxlist[0][sitelang])
+del(infoboxlist[14]['thwiki'])  # https://th.wikipedia.org/w/index.php?title=เครเตียง_เดอ_ทรัว&diff=12903782&oldid=12798551 (empty infobox author)
 
-# Disallow general Wikidata infoboxes with problems
-dictnr += 1
-infoboxlist[dictnr] = {}
-for sitelang in veto_infobox:
-    if sitelang in infoboxlist[3]:
-        infoboxlist[dictnr][sitelang] = infoboxlist[3][sitelang]
-        del(infoboxlist[3][sitelang])
-
-# Manual exclusions
-dictnr += 1
+# Manual infobox exclusions
 infoboxlist[dictnr] = {
     'altwiki': 'Кӧл',               # Infobox https://alt.wikipedia.org/w/index.php?title=Гейзер_кӧл&action=history
     'arzwiki': 'صندوق معلومات كاتب',
     'astwiki': 'Persona',
-    'avkwiki': 'Suterotik2',
+    'avkwiki': 'Suterotik',
     'azwiki': 'Rəqs',               # No Wikidata
     'bswiki': 'Infokutija',         # Multiple templates
     'euwiki': 'Biografia',          # Multiple templates
     'fiwiki': 'Kirjailija',
     'fywiki': 'Artyst',             # https://fy.wikipedia.org/w/index.php?title=Kees_van_Kooten&diff=1114402&oldid=1114401&diffmode=source
+    'pnbwiki': 'خانہ معلومات صاحب منصب/عربی',   # https://pnb.wikipedia.org/w/index.php?title=کیئر_سٹارمر&diff=688751&oldid=669496
     'ruwiki': 'Однофамильцы',       # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=prev&oldid=129491499&diffmode=source
     'srwiki': 'Infokutija',         # Multiple templates
+    'swwiki': 'Msanii muziki 2',    # https://sw.wikipedia.org/w/index.php?title=Patti_Smith&diff=1460383&oldid=896224
     'tgwiki': 'Варақаи футболбоз',  # https://tg.wikipedia.org/w/index.php?title=Михаил_Шишкин_%28футболбоз%29&diff=1414806&oldid=1414805
     'ukwiki': 'Unibox',             # https://uk.wikipedia.org/w/index.php?title=Сюанський_папір&diff=39931612&oldid=37227693
     'uzwiki': 'Shaxsiyat',          # https://uz.wikipedia.org/w/index.php?title=Peter_Thiel&diff=3990073&oldid=3990069
@@ -3454,13 +3932,16 @@ infoboxlist[dictnr] = {
     'yiwiki': 'אנפירער',            # https://yi.wikipedia.org/w/index.php?title=אדאלף_היטלער&diff=588334&oldid=588333&diffmode=source
 }
 
+# Fall-trough templates
 dictnr += 1
 infoboxlist[dictnr] = {
     'altwiki': 'Озеро',             # Infobox alias https://alt.wikipedia.org/w/index.php?title=Гейзер_кӧл&action=history
     'arzwiki': 'معلومات كنيسة',     # https://arz.wikipedia.org/w/index.php?title=كنيسه_سانت_كليمنت_(فولكيستون_اند_هيث,_المملكه_المتحده)&diff=prev&oldid=8920530
-    'euwiki': '[^{]+ infotaula',       # Regex wildcard
+    'euwiki': '[^{]+ infotaula',    # Regex wildcard
+    'fywiki': 'Ynfoboks telefyzje- of radiopersoanlikheid',    # https://fy.wikipedia.org/w/index.php?title=Kysia_Hekster&diff=1219994&oldid=1016701
     'srwiki': 'Glumac-lat',         # Multiple templates
     'ukwiki': 'Кулінарна страва',
+    'xmfwiki': 'ინფოდაფა მუსიკოსი',   # https://xmf.wikipedia.org/w/index.php?title=კეტი_პერი&diff=239749&oldid=203604
 }
 
 dictnr += 1
@@ -3475,15 +3956,44 @@ infoboxlist[dictnr] = {
 }
 
 dictnr += 1
+infoboxlist[dictnr] = {
+    'arzwiki': 'ندوق معلومات سيرة كرة قدم',    # https://arz.wikipedia.org/w/index.php?title=جان_فيريهين&diff=12531463&oldid=12531462 Sjabloon:Infobox voetballer (Q5616966)
+}
+
+dictnr += 1
+infoboxlist[dictnr] = {
+    'arzwiki': 'معلومات محامى',    # https://arz.wikipedia.org/w/index.php?title=ادموند_بيرك&diff=12843941&oldid=12843939
+}
+
+### Should we blacklist arzwiki ?? If we would need to add another manual exception
+dictnr += 1
+infoboxlist[dictnr] = {
+    'arzwiki': 'صندوق معلومات مؤرخ',    # https://arz.wikipedia.org/w/index.php?title=ادموند_بورك_التالت&diff=12843940&oldid=12340100
+}
+
+# Indeed: arzwiki blacklisted...
+# We might remove arzwiki templates above... see veto_infobox
+# معلومات لاعيب هوكى الجليد     # https://arz.wikipedia.org/w/index.php?title=نايجل_وليامز_%28لاعب_هوكى_الجليد%29&diff=12922822&oldid=12864817
+
+# Problems with adding duplicate images on arzwiki
+# https://arz.wikipedia.org/w/index.php?title=جان_ديلفن&diff=12941475&oldid=12773328
+# https://arz.wikipedia.org/wiki/قالب:معلومات_رسام
+
+dictnr += 1
 pywikibot.info('{:d} Wikipedia infoboxes loaded'.format(dictnr))
 
 # Reference template lists; highest ranked gets priority
 referencelist = {}                  # Replace <references /> by References
 referencelist[0] = get_wikipedia_sitelink_template_dict('Q5462890')     # References, 32 s
 referencelist[1] = get_wikipedia_sitelink_template_dict('Q10991260')    # Appendix
+
 referencelist[2] = {                # Manual overrides
-'nlwiki': 'Appendix|refs',
+'nlwiki': 'Appendix',
 'nnwiki': 'Reflist'
+}
+
+referencelist[3] = {                # Manual overrides
+'nlwiki': 'Appendix|refs',
 }
 
 # Mandatory commonscat section
@@ -3497,17 +4007,24 @@ commonssection = {
 authoritylist = {}
 
 # Index 0..2 is used for searching navigation box and portal
+# HARDCODED: Please adapt for ibox in range(3):
 
-# Specific index 0
+#! Specific index 0
 # Add authority infobox
 authoritylist[0] = get_wikipedia_sitelink_template_dict('Q3907614')     # Add Authority control, 1s
 
-# Specific index 1
+# Overrule Authority templates
+# Enforce frwiki == Liens externes ==
+### Ereg Replace {{Bases}} or {{Autorité}} by {{Liens}}
+# or by '' when {{Liens}} is already there
+authoritylist[0]['frwiki'] = 'Liens'
+
+#! Specific index 1
 # No Commonscat for Interproject links
 authoritylist[1] = get_wikipedia_sitelink_template_dict('Q5830969')     # Interproject template, 4 s
 authoritylist[1]['euwiki']  = 'Autoritate kontrola'          # https://eu.wikipedia.org/w/index.php?title=Westgate_(Canterbury)&diff=prev&oldid=9518658
 
-# Specific index 2
+#! Specific index 2
 # No Commonscat
 authoritylist[2] = {            # Manual exclusions
     'astwiki': 'NF',
@@ -3517,7 +4034,8 @@ authoritylist[2] = {            # Manual exclusions
     'lvwiki': 'Sisterlinks-inline',           # Q26098003
     'mdfwiki': 'Ломань',        # Q6249834
 }
-# Specific index 3
+
+#! Specific index 3
 # Lifetime template; skip adding DEFAULTSORT
 authoritylist[3] = get_wikipedia_sitelink_template_dict('Q6171224')     # Livetime, 1 s
 
@@ -3526,6 +4044,8 @@ authoritylist[4] = {
     'arzwiki': 'ضبط استنادي',   # alias for [0]
     'bewiki': 'Бібліяінфармацыя',
     'frwiki': 'Bases',          # Liens = Autorité + Bases
+    'nlwiki': referencelist[0]['nlwiki'],   ## No Authority with References (wrong placement)
+    'pnbwiki': 'حوالے',         # https://pnb.wikipedia.org/w/index.php?title=کیئر_سٹارمر&diff=688751&oldid=669496
     'ruwiki': 'BC',             # https://ru.wikipedia.org/w/index.php?title=Верлинден%2C_Аннелис&diff=129492269&oldid=129491434&diffmode=source
     'tgwiki': 'ПБ',             # alias https://tg.wikipedia.org/w/index.php?title=Дейл_Карнегӣ&diff=1404168&oldid=1392239
     'ukwiki': 'Нормативний контроль',   # https://uk.wikipedia.org/w/index.php?title=Пітер_Тіль&diff=41204517&oldid=41204504
@@ -3536,15 +4056,6 @@ authoritylist[5] = {}
 for sitelang in veto_authority:
     authoritylist[5][sitelang] = authoritylist[0][sitelang]
     del(authoritylist[0][sitelang])
-
-# No Authority with References
-authoritylist[5]['nlwiki'] = referencelist[0]['nlwiki']
-
-# Overrule Authority templates
-# Enforce frwiki == Liens externes ==
-### Ereg Replace {{Bases}} or {{Autorité}} by {{Liens}}
-# or by '' when {{Liens}} is already there
-authoritylist[0]['frwiki'] = 'Liens'
 
 # Get the Commonscat template names
 commonscatlist = {}
@@ -3578,6 +4089,8 @@ commonscatlist[4] = {
 commonscatlist[3]['frwiki'] = commonscatlist[0]['frwiki']
 commonscatlist[0]['frwiki'] = 'Autres projets|commons=Category:'
 
+template_imagewanted = get_wikipedia_sitelink_template_dict('Q105319016')    # Fotogewenst
+
 # Get the portal template list
 portallist = {}
 portallist[0] = get_wikipedia_sitelink_template_dict('Q5153')       # Portal, 1 s
@@ -3592,7 +4105,7 @@ portallist[3] = {
     'nlwiki': 'Navigatie',
 }
 
-# Templates with autopicture from Wikidata
+### Templates with autopicture from Wikidata
 imagetemplatelist = {}
 
 pywikibot.info('Wikipedia templates loaded')
@@ -3622,7 +4135,7 @@ for qnumber in nat_languages:
     try:
         item = get_item_page(qnumber)
         qnumber = item.getID()
-        pywikibot.log('{} ({})'.format(item.labels[mainlang], qnumber))
+        pywikibot.log('{} ({})'.format(get_item_header(item.labels), qnumber))
     except:
         pywikibot.log('({})'.format(qnumber))
 """
@@ -3632,8 +4145,9 @@ for qnumber in nat_languages:
 """
 for site in sorted(pywikibot._sites.values()):
     if site.username():
-        pywikibot.debug('{} {} {} {}'
-                        .format(site, site.username(),
-                                site.is_oauth_token_available(), site.logged_in()))
+        pywikibot.debug('{} {} {} {}'.format(
+                        site, site.username(),
+                        site.is_oauth_token_available(), site.logged_in()))
 
 sys.exit(exitstat)
+
