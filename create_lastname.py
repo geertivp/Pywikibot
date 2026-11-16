@@ -7,7 +7,11 @@ Parameters:
 
     P1, P2...: optional additional claims (possibility to overrule default claims)
 
-    stdin: the list of lastnames
+    Examples:
+
+        P1705 nl    label in oorspronkelijke taal
+
+    stdin: the list of lastnames, one per line
 
 Return status:
 
@@ -20,6 +24,7 @@ Return status:
     13 Maxlag error
     20 Page save error
     30 General error
+    40 Function not implemented
     130 Ctrl-c pressed, program interrupted
 
 Prequisites:
@@ -29,6 +34,24 @@ Prequisites:
     pip install cologne-phonetics
     pip install jellyfish
     pip install phonetisch
+
+Fallback solution:
+
+    sudo -s
+    apt install python3-full
+    python3 -m venv /opt/python
+
+    /opt/python/bin/pip install cologne-phonetics
+
+    /opt/python/bin/pwb create_lastname
+
+Functionality:
+
+    Only the mul-label is stored
+    https://www.wikidata.org/wiki/Help:Default_values_for_labels_and_aliases
+
+    Do not store obvious item descriptions
+    https://phabricator.wikimedia.org/T303677
 
 Author:
 
@@ -49,36 +72,35 @@ Documentation:
 
 Known problems:
 
-    Duplicates can possibly be created due to augmented replication delays.
+    Duplicates could possibly be created due to augmented replication delays.
 
 """
 
 import cologne_phonetics
 import jellyfish        # soundex
 import os               # Operating system: getenv
+import pdb              # Python debugger
 import pywikibot		# API interface to Wikidata
 import re		    	# Regular expressions (very handy!)
 import sys		    	# System: argv, exit (get the parameters, terminate the program)
 import time		    	# sleep
 import unidecode        # Unicode
 
-from datetime import datetime	# now, strftime, delta time, total_seconds
-from phonetisch import caverphone
+from datetime import datetime	    # now, strftime, delta time, total_seconds
+from phonetisch import caverphone   ## Bug in library (lowercases)
 from pywikibot.data import api
 
 # Global variables
 modnm = 'Pywikibot create_lastname'     # Module name (using the Pywikibot package)
-pgmid = '2024-10-07 (gvp)'	    # Program ID and version
+pgmid = '2026-03-28 (gvp)'	    # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
 # Technical configuration flags
 # Defaults: transparent and safe
-errorstat = True    # Show error statistics (disable with -e)
 exitfatal = True	# Exit on fatal error (can be disabled with -p; please take care)
 shell = True		# Shell available (command line parameters are available; automatically overruled by PAWS)
-showcode = False	# Show the generated SPARQL code (activate with -c)
-verbose = True		# Can be set with -q or -v (better keep verbose to monitor the bot progress)
+createmode = False	# Show the generated SPARQL code (activate with -c)
 
 # Technical parameters
 
@@ -103,47 +125,39 @@ maxdelay = 150		# Maximum error delay in seconds (overruling any extreme long pr
 """
 
 # Wikidata transaction comment
-transcmt = '#pwb Create lastname'	    	# Wikidata transaction comment
+transcmt = '#pwb Create lastname'	    # Wikidata transaction comment
+
+# Functional configuration flags
+MULANG = 'mul'
+MAINLANG = 'en:mul'
 
 # Properties
 INSTANCEPROP = 'P31'
 SUBCLASSPROP = 'P279'
 SCRIPTPROP = 'P282'
-COMMCATPROP = 'P373'
+COMMONSCATPROP = 'P373'
 LASTNAMEPROP = 'P734'
 NATIVELANGLABELPROP = 'P1705'
-CAVERPHONPROP = 'P3880'
+CAVERPHONEPROP = 'P3880'        # https://www.wikidata.org/wiki/Property_talk:P3880
 SOUNDEXPROP = 'P3878'
-KOLNPHONPROP = 'P3879'
+KOLNPHONEPROP = 'P3879'
 INFIXPROP = 'P7377'
 
 # Instances
 LATINSCRIPTINSTANCE = 'Q8229'
-LASTNAMEINSTANCE = 'Q101352'
-TOPONYMLASTNAMEINSTANCE = 'Q17143070'
-COMPLASTNAME = 'Q60558422'
-AFFIXLASTNAMEINSTANCE = 'Q66480858'
+LASTNAMEINSTANCE = 'Q101352'                    # familienaam
+DOUBLELASTNAMEINSTANCE = 'Q29042997'
+LASTNAMESUBCLASSINSTANCE = 'Q121493679'         # achternaam
+LASTNAMEHYPHNINSTANCE = 'Q106319018'            # hyphen
+LASTNAMETOPONYMINSTANCE = 'Q17143070'           # toponym
+LASTNAMECOMPOUNDINSTANCE = 'Q60558422'          # compound
+LASTNAMEAFFIXINSTANCE = 'Q66480858'             # affix
 
-# Functional configuration flags
-MAINLANG = 'en:mul'
-
-# Set base statements
-target = {
-    INSTANCEPROP: LASTNAMEINSTANCE,
-    SCRIPTPROP: LATINSCRIPTINSTANCE,
-}
+lastname_instances = {LASTNAMEINSTANCE, DOUBLELASTNAMEINSTANCE, LASTNAMEAFFIXINSTANCE, LASTNAMECOMPOUNDINSTANCE, LASTNAMESUBCLASSINSTANCE, LASTNAMETOPONYMINSTANCE, LASTNAMEHYPHNINSTANCE}
 
 # Validation rules
 propreqinst = {
-    LASTNAMEPROP: {AFFIXLASTNAMEINSTANCE, COMPLASTNAME, LASTNAMEINSTANCE, TOPONYMLASTNAMEINSTANCE},
-}
-
-name_prefix_list = {
-    'Van': 'Q69876093',
-    'van': 'Q69872130',
-    'Von': 'Q70084230',
-    'von': 'Q69870160',
-    ## should be extended
+    LASTNAMEPROP: lastname_instances,
 }
 
 
@@ -164,20 +178,29 @@ def fatal_error(errcode, errtext):
 
 def get_item_header(header):
     """
-    Get the item header (label, description, alias in user language)
+    Get the item header (label, description, alias, or dict element in user language)
 
-    :param header: item label, description, or alias language list (string or list)
-    :return: label, description, or alias in the first available language (string)
+    :param header: item labels, descriptions, or aliases, or any dict (dict)
+    :return: label, description, or alias in the first available language (string, list)
+
+    The language is in ISO code format.
     """
+    if not header:
+        return '-'
+    else:
+        # Return preferred label
+        for lang in main_languages:
+            if lang in header:
+                return header[lang]
 
-    # Return preferred label
-    for lang in main_languages:
-        if lang in header:
+        # Return mul label when present
+        if MULANG in header:
+            return header[MULANG]
+
+        # Return any other label (no specific order?)
+        for lang in header:
             return header[lang]
-
-    # Return any other label
-    for lang in header:
-        return header[lang]
+    # No label present
     return '-'
 
 
@@ -260,33 +283,17 @@ def item_is_in_list(statement_list, itemlist):
     return ''
 
 
-def get_item_label_dict(qnumber) -> {}:
-    """
-    Get the Wikipedia labels in all languages for a Qnumber.
-    :param qnumber: list number
-    :return: capitalized label dict (index by ISO language code)
-    Example of usage:
-        Image namespace name.
-    """
-    labeldict = {}
-    item = get_item_page(qnumber)
-    # Get target labels
-    for lang in item.labels:
-        if ROMANRE.search(item.labels[lang]):
-            labeldict[lang] = item.labels[lang]
-    return labeldict
-
-
-def get_item_list(item_name: str, instance_id) -> list:
+def get_item_list(item_name: str, instance_id) -> set():
     """Get list of items by name, belonging to an instance (list)
 
     :param item_name: Item name (string)
     :param instance_id: Instance ID (set, or list)
-    :return: List of items (Q-numbers)
+    :return: Set of items
 
     See https://www.wikidata.org/w/api.php?action=help&modules=wbsearchentities
     """
-    pywikibot.debug('Search label: {}'.format(item_name.encode('utf-8')))
+    item_name = item_name.strip()
+    pywikibot.log('Search label: {} {}'.format(item_name.encode('utf-8'), instance_id))
     item_list = set()                   # Empty set
     params = {'action': 'wbsearchentities',
               'search': item_name,      # Get item list from label
@@ -295,7 +302,7 @@ def get_item_list(item_name: str, instance_id) -> list:
               'uselang': mainlang,
               'strictlanguage': False,  # All languages are searched
               'format': 'json',
-              'limit': 20}              # Should be reasonable value
+              'limit': 20}              # Should be reasonable value; could possibly be increased
     request = api.Request(site=repo, parameters=params)
     result = request.submit()
     pywikibot.debug(result)
@@ -315,12 +322,12 @@ def get_item_list(item_name: str, instance_id) -> list:
                 # Search all languages
                 for lang in item.labels:
                     if item_name_canon == item.labels[lang]:
-                        item_list.add(item.getID())     # Label match
+                        item_list.add(item)     # Label match
                         break
                 for lang in item.aliases:
                     for seq in item.aliases[lang]:
                         if item_name_canon == seq:
-                            item_list.add(item.getID()) # Alias match
+                            item_list.add(item) # Alias match
                             break
     pywikibot.log(item_list)
     # Convert set to list; keep sort order (best matches first)
@@ -329,17 +336,15 @@ def get_item_list(item_name: str, instance_id) -> list:
 
 def wd_proc_all_items():
     """
+    Main procedure
     """
 
     global exitstat
 
 # Loop initialisation
     transcount = 0	    	# Total transaction counter
-    statcount = 0           # Statement count
-    pictcount = 0	    	# Picture count
-    safecount = 0	    	# Safe transaction
     errcount = 0	    	# Error counter
-    errsleep = 0	    	# Technical error penalty (sleep delay in seconds)
+    errsleep = 15	    	# Technical error penalty (sleep delay in seconds)
 
 # Avoid that the user is waiting for a response while the data is being queried
     pywikibot.info('Processing %d statements' % (len(itemlist)))
@@ -353,9 +358,9 @@ def wd_proc_all_items():
       if  status == 'Stop':	    # Ctrl-c pressed -> stop in a proper way
         break
 
-      objectname = ' '.join(newitem.split())
+      objectname = ' '.join(newitem.replace('_', ' ').split()).strip()
       if not objectname:
-        pass
+        continue
       elif not ROMANRE.search(objectname):
         status = 'Skip'
         errcount += 1
@@ -373,97 +378,122 @@ def wd_proc_all_items():
         try:
             # Get all matching items
             name_list = get_item_list(objectname, propreqinst[LASTNAMEPROP])
+            ##pdb.set_trace()
 
-            if len(name_list) == 1 and not showcode:
+            if len(name_list) == 1 and INSTANCEPROP not in name_list[0].claims:
+                # Every item must have an instance, can't be overruled by -c
+                status = 'Instance'
+                pywikibot.error('Missing instance for {} ({}) -- please add instance manually and rerun'.format(
+                                get_item_header(name_list[0].labels), name_list[0].getID()))
+            elif len(name_list) == 1 and not createmode:
                 # Update the lastname
                 status = 'Update'
-                item = get_item_page(name_list[0])
+                item = name_list.pop()
                 qnumber = item.getID()
 
                 # Merge labels
-                lang = 'mul'
-                if lang not in item.labels:
-                    item.labels[lang] = objectname              # Add language code
-                elif objectname == item.labels[lang]:
+                if MULANG not in item.labels:
+                    item.labels[MULANG] = objectname              # Add language code
+                elif objectname == item.labels[MULANG]:
                     pass
-                elif lang not in item.aliases:
-                    item.aliases[lang] = [objectname]           # Add alias
-                elif objectname not in item.aliases[lang]:
-                    item.aliases[lang].append(objectname)       # Merge aliases
+                elif MULANG not in item.aliases:
+                    item.aliases[MULANG] = [objectname]           # Add alias
+                elif objectname not in item.aliases[MULANG]:
+                    item.aliases[MULANG].append(objectname)       # Merge aliases
+
+                # Merge aliases
+                if mainlang in item.aliases:
+                    for seq in item.aliases[mainlang]:
+                        if '(' not in seq:
+                            if MULANG not in item.aliases:
+                                item.aliases[MULANG] = [seq]
+                            elif seq not in item.aliases[MULANG]:
+                                item.aliases[MULANG].append(seq)
+
+                # Enforce mul labels
+                """
+                ## Not yet agreed by community...
+                for lang in item.labels:
+                    if lang != MULANG and item.labels[lang] == objectname:
+                        item.labels[lang] = ''
+                """
 
                 """
-                # https://phabricator.wikimedia.org/T303677
-                for lang in descr:
-                    if lang not in item.descriptions:           # Skip duplicate descr
-                        item.descriptions[lang] = descr[lang]
+                ## Bad idea
+                for lang in item.aliases:
+                    while item.labels[MULANG] in item.aliases[lang]:
+                        item.aliases[lang].remove(item.labels[MULANG])
                 """
 
                 # Remove redundant aliases
-                # Should also enforce mul labels
                 for lang in item.labels:
                     if lang in item.aliases:
                         while item.labels[lang] in item.aliases[lang]:
                             item.aliases[lang].remove(item.labels[lang])
 
-                item.editEntity({'labels': item.labels, 'descriptions': item.descriptions, 'aliases': item.aliases}, summary=transcmt)
-            elif name_list and not showcode:
+                item.editEntity({'labels': item.labels, 'aliases': item.aliases},
+                                summary=transcmt, bot=wdbotflag)
+            elif name_list and not createmode:
                 status = 'Ambiguous'            # Item is not unique
-                pywikibot.error('Ambiguous lastname {} {}'.format(objectname, name_list))
+                for item in name_list:
+                    try:
+                        item_instance = items.claims[INSTANCEPROP][0].getTarget()
+                        item_type = get_item_header(item_instance.labels)
+                    except:
+                        item_instance = None
+                        item_type = 'lastname'
+                    pywikibot.error('{} {} ({}) {} ({})'.format(
+                                        status, item_type, item_instance,
+                                        get_item_header(item.labels), item.getID()))
             else:
-                # Create the lastname
-                label['mul'] = objectname
+                # Create the lastname, either because empty list, or -c qualifier
+                label[MULANG] = objectname
 
                 try:
                     item = pywikibot.ItemPage(repo)         # Create item
-                    item.editEntity({'labels': label}, summary=transcmt)
+                    item.editLabels(labels=label, summary=transcmt, bot=wdbotflag)
                     qnumber = item.getID()
-                    pywikibot.warning('Created lastname {} ({})'
-                                      .format(objectname, qnumber))
+                    pywikibot.warning('Created lastname {} ({})'.format(objectname, qnumber))
                 except pywikibot.exceptions.OtherPageSaveError as error:
-                    pywikibot.error('Error creating %s, %s' % (objectname, error))
+                    pywikibot.error('Error creating {}, {}'.format(objectname, error))
                     status = 'Error'	    # Handle any generic error
                     errcount += 1
                     exitstat = max(exitstat, 10)
 
-            if status in ['OK', 'Update']:
+            if status in {'OK', 'Update'}:
                 # Merge the statements
+                # Set the language label
+                targetx[NATIVELANGLABELPROP].text = objectname
+
+                # Amend item if value is not already registered
                 for propty in targetx:
-                    if (propty not in item.claims
-                            or not item_is_in_list(item.claims[propty], [target[propty]])):
-                        # Amend item if value is not already registered
+                    if propty not in item.claims:
                         claim = pywikibot.Claim(repo, propty)
                         claim.setTarget(targetx[propty])
                         item.addClaim(claim, bot=wdbotflag, summary=transcmt)
                         # Should confirm?
 
-                if NATIVELANGLABELPROP not in item.claims:      # Label in official language
-                    claim = pywikibot.Claim(repo, NATIVELANGLABELPROP)
-                    claim.setTarget(pywikibot.WbMonolingualText(text=objectname, language='mul'))
-                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                    pywikibot.warning('Adding native name: {}'.format(objectname))
+                # Add the soundex codes
+                # https://www.wikidata.org/wiki/Wikidata:Property_proposal/phonetic_algorithms
+                soundcodes = {
+                    ### Problem: bug in library? (lowercases)
+                    ## https://www.wikidata.org/w/index.php?title=Q26736114&diff=2441443986&oldid=2441443920
+                    ## https://phabricator.wikimedia.org/T414024
+                    ##CAVERPHONEPROP: ['caverphone', caverphone.encode_word(objectname)],
+                    KOLNPHONEPROP: ['Köhl phonetic', cologne_phonetics.encode(objectname)[0][1]],
+                    SOUNDEXPROP: ['soundex', jellyfish.soundex(objectname)],
+                    # Metaphone: https://www.wikidata.org/wiki/Q1925103
+                }
 
-                if SOUNDEXPROP not in item.claims:
-                    soundex = jellyfish.soundex(objectname)
-                    claim = pywikibot.Claim(repo, SOUNDEXPROP)
-                    claim.setTarget(soundex)
-                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                    pywikibot.warning('Adding soundex: {}'.format(soundex))
+                for soundcode in soundcodes:
+                    if soundcode not in item.claims:
+                        soundval = soundcodes[soundcode][1]
+                        claim = pywikibot.Claim(repo, soundcode)
+                        claim.setTarget(soundval)
+                        item.addClaim(claim, bot=wdbotflag, summary=transcmt)
+                        pywikibot.warning('Add {}: {}'.format(soundcodes[soundcode][0], soundval))
 
-                if KOLNPHONPROP not in item.claims:
-                    colnphon = cologne_phonetics.encode(objectname)[0][1]
-                    claim = pywikibot.Claim(repo, KOLNPHONPROP)
-                    claim.setTarget(colnphon)
-                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                    pywikibot.warning('Adding Köhl phonetic: {}'.format(colnphon))
-
-                if CAVERPHONPROP not in item.claims:
-                    caverphon = caverphone.encode_word(objectname)
-                    claim = pywikibot.Claim(repo, CAVERPHONPROP)
-                    claim.setTarget(caverphon)
-                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
-                    pywikibot.warning('Adding caverphone: {}'.format(caverphon))
-
-                # Build a list of affixes
+                # Search the affixes
                 for name_prefix in name_prefix_list:
                     if objectname.startswith(name_prefix + ' '):
                         break
@@ -471,7 +501,7 @@ def wd_proc_all_items():
                     name_prefix = ''
 
                 if name_prefix:
-                    if not item_is_in_list(item.claims[INSTANCEPROP], [AFFIXLASTNAMEINSTANCE]):
+                    if not item_is_in_list(item.claims[INSTANCEPROP], [LASTNAMEAFFIXINSTANCE]):
                         claim = pywikibot.Claim(repo, INSTANCEPROP)
                         claim.setTarget(affix_namex)
                         item.addClaim(claim, bot=wdbotflag, summary=transcmt)
@@ -482,50 +512,61 @@ def wd_proc_all_items():
                         item.addClaim(claim, bot=wdbotflag, summary=transcmt)
 
                     # Need to verify on toponym first
-                    if False and not item_is_in_list(item.claims[INSTANCEPROP], [TOPONYMLASTNAMEINSTANCE]):
+                    if False and not item_is_in_list(item.claims[INSTANCEPROP], [LASTNAMETOPONYMINSTANCE]):
                         claim = pywikibot.Claim(repo, INSTANCEPROP)
                         claim.setTarget(toponym_namex)
                         item.addClaim(claim, bot=wdbotflag, summary=transcmt)
 
+                # Try to assign Commons Category
                 commonscat = objectname + ' (surname)'
-                if 'commonswiki' in item.sitelinks:
-                    sitelink = item.sitelinks['commonswiki']
-                    commonscat = sitelink.title
-                    colonloc = commonscat.find(':')
-                    if colonloc >= 0:
-                        commonscat = commonscat[colonloc + 1:]
-                else:
-                    # Create commonscat
-                    page = pywikibot.Category(site, commonscat)
-                    if cbotflag and not page.text:
-                        pageupdated = transcmt + ' Add Wikidata Infobox'
-                        page.text = '{{Wikidata Infobox}}'
-                        pywikibot.warning('Add {} template to Commons {}'
-                                          .format('Wikidata Infobox', page.title()))
-                        page.save(summary=pageupdated, minor=True) #, bot=True) ##, bot=cbotflag) ## got multiple values for keyword argument 'bot'
-                        status = 'Infobox'
-
-                    sitedict = {'site': 'commonswiki', 'title': 'Category:' + commonscat}
+                page = pywikibot.Category(site, commonscat)
+                if not page.text:
+                    # Category page does not exist (yet)
+                    pywikibot.info('Empty Wikimedia Commons category page: {}'.format(commonscat))
+                    commonscat = ''
+                elif COMMONSCATREDIRECTRE.search(page.text) and not COMMONSCATTOCRE.search(page.text):
+                    # Should only assign real Category pages
+                    pywikibot.warning('Redirect Wikimedia Commons category page: {}'
+                                      .format(commonscat))
+                    commonscat = ''
+                elif 'commonswiki' not in item.sitelinks:
+                    # Try to create a Wikimedia Commons Category sitelink
                     try:
-                        item.setSitelink(sitedict, bot=wdbotflag, summary='#pwb Add sitelink')
+                        sitedict = {'site': 'commonswiki', 'title': page.title()}
+                        item.setSitelink(sitedict, bot=wdbotflag, summary=transcmt + ' Add sitelink')
                         status = 'Commons'
-                        ## Run copy_label for item number
                     except pywikibot.exceptions.OtherPageSaveError as error:
+                        # Category already assigned to other item
                         # Get unique Q-numbers, skip duplicates (order not guaranteed)
-                        commonscat = ''
                         itmlist = set(QSUFFRE.findall(str(error)))
-                        if len(itmlist) > 1:
+                        if qnumber in itmlist:
                             itmlist.remove(qnumber)
-                            pywikibot.error('Conflicting category statement {}, {}'
-                                            .format(qnumber, itmlist))
+
+                        # Silently pass if Category page does not exist
+                        if itmlist:
+                            # Category was not assigned due to ambiguity
+                            pywikibot.info('Category:{} ({}) conflicting with {}'
+                                           .format(commonscat, qnumber, itmlist))
                             status = 'DupCat'	    # Conflicting category statement
                             errcount += 1
                             exitstat = max(exitstat, 10)
+                        commonscat = ''
 
-                if commonscat and COMMCATPROP not in item.claims:
-                    claim = pywikibot.Claim(repo, COMMCATPROP)
-                    claim.setTarget(commonscat)
-                    item.addClaim(claim, bot=wdbotflag, summary=transcmt)
+                if commonscat:
+                    if cbotflag and not WDINFOBOXRE.search(page.text):
+                        # Add Wikidata Infobox to Wikimedia Commons Category
+                        pageupdated = transcmt + ' Add Wikidata Infobox'
+                        page.text = '{{Wikidata Infobox}}\n' + re.sub(r'[ \t\r\f\v]+$', '', page.text, flags=re.MULTILINE)
+                        pywikibot.warning('Add {} template to Commons {}'
+                                          .format('Wikidata Infobox', page.title()))
+                        page.save(summary=pageupdated, minor=True)
+                        status = 'Commons'
+
+                    # Add missing category statement
+                    if COMMONSCATPROP not in item.claims:
+                        claim = pywikibot.Claim(repo, COMMONSCATPROP)
+                        claim.setTarget(commonscat)
+                        item.addClaim(claim, bot=wdbotflag, summary=transcmt)
 
 # (14) Error handling
         except KeyboardInterrupt:
@@ -533,18 +574,20 @@ def wd_proc_all_items():
             exitstat = max(exitstat, 130)
 
         except pywikibot.exceptions.MaxlagTimeoutError as error:  # Attempt error recovery
-            pywikibot.error('Error updating %s, %s' % (qnumber, error))
+            deltasecs = int((datetime.now() - now).total_seconds())	# Calculate technical error penalty
+            pywikibot.error('Error after {:d} seconds for {}, {}'.format(deltasecs, qnumber, error))
             status = 'Error'	    # Handle any generic error
             errcount += 1
             exitstat = max(exitstat, 13)
-            deltasecs = int((datetime.now() - now).total_seconds())	# Calculate technical error penalty
+            ## Should we have a fatal error?
+            sys.exit(exitstat)
             if deltasecs >= 30: 	# Technical error; for transactional errors there is no wait time increase
                 errsleep += errwaitfactor * min(maxdelay, deltasecs)
                 # Technical errors get additional penalty wait
 				# Consecutive technical errors accumulate the wait time, until the first successful transaction
 				# We limit the delay to a multitude of maxdelay seconds
             if errsleep > 0:    	# Allow the servers to catch up; slowdown the transaction rate
-                pywikibot.error('%d seconds maxlag wait' % (errsleep))
+                pywikibot.error('{:d} seconds maxlag wait'.format(errsleep))
                 time.sleep(errsleep)
 
         except pywikibot.exceptions.OtherPageSaveError as error:  # Page save error
@@ -552,6 +595,8 @@ def wd_proc_all_items():
             status = 'Error'	    # Handle any generic error
             errcount += 1
             exitstat = max(exitstat, 20)
+            ## Should we have a fatal error?
+            sys.exit(exitstat)
 
         except Exception as error:  # other exception to be used
             pywikibot.error('Error updating %s, %s' % (qnumber, error))
@@ -571,10 +616,11 @@ def wd_proc_all_items():
         prevnow = now	        	# Transaction status reporting
         now = datetime.now()	    # Refresh the timestamp to time the following transaction
 
-        if verbose or status not in ['OK']:		# Print transaction results
-            isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
-            totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
-            pywikibot.info('%d\t%s\t%f\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (transcount, isotime, totsecs, status, qnumber, objectname, commonscat, alias, nationality, descr[mainlang]))
+        isotime = now.strftime("%Y-%m-%d %H:%M:%S") # Only needed to format output
+        totsecs = (now - prevnow).total_seconds()	# Elapsed time for this transaction
+        pywikibot.info('{:d}\t{}\t{:.3f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}'
+                       .format(transcount, isotime, totsecs, status, qnumber, objectname,
+                               commonscat, alias, nationality, descr[mainlang]))
 
 
 def show_help_text():
@@ -585,29 +631,20 @@ def show_help_text():
     sys.exit(1)         # Must stop
 
 
-def show_prog_version():
-# Show program version
-    pywikibot.info('{}, {}, {}, {}'.format(modnm, pgmid, pgmlic, creator))
-
-
 def get_next_param():
     """
     Get the next command parameter, and handle any qualifiers
     """
 
-    global showcode
+    global createmode
     global errwaitfactor
     global exitfatal
-    global verbose
 
     cpar = sys.argv.pop(0)	    # Get next command parameter
 
     if cpar.startswith('-c'):	# code check
-        showcode = True
-        print('Show generated code')
-    elif cpar.startswith('-e'):	# error stat
-        errorstat = False
-        print('Disable error statistics')
+        createmode = True
+        print('Create mode')
     elif cpar.startswith('-h'):	# help
         show_help_text()
     elif cpar.startswith('-m'):	# fast mode
@@ -616,27 +653,22 @@ def get_next_param():
     elif cpar.startswith('-p'):	# proceed after fatal error
         exitfatal = False
         print('Setting proceed after fatal error')
-    elif cpar.startswith('-q'):	# quiet mode
-        verbose = False
-        print('Setting quiet mode')
-    elif cpar.startswith('-v'):	# verbose mode
-        verbose = True
-        print('Setting verbose mode')
-    elif cpar.startswith('-V'):	# Version
-        show_prog_version()
     elif cpar.startswith('-'):	# unrecognized qualifier (fatal error)
         fatal_error(4, 'Unrecognized qualifier; use -h for help')
     return cpar		# Return the parameter or the qualifier to the caller
 
 
-# Main program entry
+"""
+    Start main program logic
+"""
+now = datetime.now()	# Start the main transaction timer
 
-if verbose:
-    show_prog_version()	    	# Print the module name
+# Print the module name
+pywikibot.info('{}, {}, {}, {}'.format(modnm, pgmid, pgmlic, creator))
 
 try:
     pgmnm = sys.argv.pop(0)	    # Get the name of the executable
-    pywikibot.info('{}, {}, {}, {}'.format(pgmnm, pgmid, pgmlic, creator))
+    pywikibot.info('{}'.format(pgmnm))
 except:
     shell = False
     pywikibot.warning('No shell available')	# Most probably running on PAWS Jupyter
@@ -647,83 +679,131 @@ except:
 """
 
 HELPRE = re.compile(r'^(.*\n)+\nDocumentation:\n\n(.+\n)+')  # Help text
-PROPRE = re.compile(r'P[0-9]+')             # P-number
-QSUFFRE = re.compile(r'Q[0-9]+')            # Q-number
-ROMANRE = re.compile(r'^[a-z .,"()\'åáàâäāæǣçéèêëėíìîïıńñŋóòôöœøřśßúùûüýÿĳ-]{2,}$', flags=re.IGNORECASE)  # Roman alphabet
+PROPRE = re.compile(r'(P[0-9]+)')           # P-number
+QSUFFRE = re.compile(r'(Q[0-9]+)')          # Q-number
+ROMANRE = re.compile(r'^[a-z \'åáàâäāæǣçéèêëėíìîïıńñŋóòôöœøřśßúùûüýÿĳ-]{2,}$', flags=re.IGNORECASE)  # Roman alphabet
+
+# Commons Category + Wikidata infobox
+COMMONSCATREDIRECTRE = re.compile(r'{{Cat disambig|{{Catredir|Cat-redirect|{{Category', flags=re.IGNORECASE)    # Including: Category redirect
+COMMONSCATTOCRE = re.compile(r'{{Category TOC', flags=re.IGNORECASE)    # Including: Category redirect
+WDINFOBOXRE = re.compile(r'{{Wikidata infobox', flags=re.IGNORECASE)
 
 # Get language list
 main_languages = get_language_preferences()
 mainlang = main_languages[0]
 
+# Will be translated to items at runtime
+name_prefix_list = {
+    ##'Al': 'Q37526065',
+    'De': 'Q135906281',
+    'de': 'Q11071485',
+    'Van': 'Q69876093',
+    'van': 'Q69872130',
+    'Von': 'Q70084230',
+    'von': 'Q69870160',
+    ## should be extended
+}
+
 inpar = '-'
 while sys.argv and inpar.startswith('-'):
     inpar = get_next_param()
 
-# Get all claims from parameter list
-
-while sys.argv:
-    propty = PROPRE.findall(inpar.upper())[0]
-    target[propty] = QSUFFRE.findall(sys.argv.pop(0).upper())[0]
-    inpar = sys.argv.pop(0)
-
-if not inpar.startswith('-'):
-    propty = PROPRE.findall(inpar.upper())[0]
-    target[propty] = QSUFFRE.findall(sys.argv.pop(0).upper())[0]
-
 # Print preferences
 pywikibot.log('Main language:\t%s' % mainlang)
 pywikibot.log('Maximum delay:\t%d s' % maxdelay)
-pywikibot.log('Show code:\t%s' % showcode)
-pywikibot.log('Verbose mode:\t%s' % verbose)
+pywikibot.log('Create mode:\t%s' % createmode)
 pywikibot.log('Exit on fatal error:\t%s' % exitfatal)
 pywikibot.log('Error wait factor:\t%d' % errwaitfactor)
 
-# Connect to database
-site = pywikibot.Site('commons')
-site.login()
-cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
+try:
+    # Connect to database
+    init_phase = 'Login'
+    site = pywikibot.Site('commons')
+    site.login()
+    cbotflag = 'bot' in pywikibot.User(site, site.user()).groups()
 
-# This script requires a bot flag
-repo = site.data_repository()
-repo.login()
-wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
+    # This script requires a bot flag
+    repo = site.data_repository()
+    repo.login()
+    wdbotflag = 'bot' in pywikibot.User(repo, repo.user()).groups()
 
-# Get description
-descr = get_item_label_dict(LASTNAMEINSTANCE)
-#for val in sorted(descr):
-#    pywikibot.debug('{}\t{}'.format(val, descr[val]))
+    # Set base statements
+    init_phase = 'Data'
+    targetx = {
+        INSTANCEPROP: get_item_page(LASTNAMEINSTANCE),
+        SCRIPTPROP: get_item_page(LATINSCRIPTINSTANCE),
+        NATIVELANGLABELPROP: pywikibot.WbMonolingualText(text='None', language=MULANG),
+    }
 
-# Compile the statements
-targetx={}
-for propty in target:
-    proptyx = pywikibot.PropertyPage(repo, propty)
-    targetx[propty] = get_item_page(target[propty])
-    pywikibot.info('Statement {}:{} ({}:{})'
-                   .format(get_item_header(proptyx.labels), get_item_header(targetx[propty].labels),
-                           propty, target[propty]))
+    while sys.argv and not inpar.startswith('-'):
+        # Get all claims from parameter list
+        propty = PROPRE.findall(inpar.upper())[0]
+        proptypage = pywikibot.PropertyPage(repo, propty)
+        inpar = sys.argv.pop(0)
+        if proptypage.type == 'wikibase-item':
+            targetx[propty] = get_item_page(QSUFFRE.findall(inpar.upper())[0])
+        elif proptypage.type == 'monolingualtext':
+            ## Should get textual parameters as well (e.g. P1705)
+            ## Default NATIVELANGLABELPROP MULANG
+            targetx[propty] = pywikibot.WbMonolingualText(text='None', language=inpar)
+        else:
+            fatal_error(40, 'Property type {} not supported for {} ({})'
+                           .format(proptypage.type, get_item_header(proptypage.labels), propty))
 
-# Item pages
-affix_namex = get_item_page(AFFIXLASTNAMEINSTANCE)
-toponym_namex = get_item_page(TOPONYMLASTNAMEINSTANCE)
+        if sys.argv:
+            inpar = sys.argv.pop(0)
 
-for name_prefix in name_prefix_list:
-    name_prefix_list[name_prefix] = get_item_page(name_prefix_list[name_prefix])
+    # Show the (template) statements
+    for propty in targetx:
+        proptyx = pywikibot.PropertyPage(repo, propty)
+        proptypage = pywikibot.PropertyPage(repo, propty)
+        if proptypage.type == 'wikibase-item':
+            pywikibot.info('Statement {} ({}) {} ({})'.format(
+                           get_item_header(proptyx.labels), propty,
+                           get_item_header(targetx[propty].labels), targetx[propty].getID()))
+        elif proptypage.type == 'monolingualtext':
+            pywikibot.info('Statement {} ({}) {} ({})'.format(
+                           get_item_header(proptyx.labels), propty,
+                           targetx[propty].text, targetx[propty].language))
 
-# Get list of item numbers
-inputfile = sys.stdin.read()
-itemlist = sorted(set(inputfile.splitlines()))
-pywikibot.debug(itemlist)
+    # Get language descriptions
+    descr = {}
+    instance_item = targetx[INSTANCEPROP]
+    for lang in instance_item.labels:
+        descr[lang] = instance_item.labels[lang]              # Get language labels
 
-wd_proc_all_items()	    # Execute all items for one language
+    # Item pages
+    affix_namex = get_item_page(LASTNAMEAFFIXINSTANCE)
+    toponym_namex = get_item_page(LASTNAMETOPONYMINSTANCE)
 
-"""
-    Print all sitelinks (base addresses)
-    PAWS is using tokens (passwords can't be used because Python scripts are public)
-    Shell is using passwords (from user-password.py file)
-"""
-for site in sorted(pywikibot._sites.values()):
-    if site.username():
-        pywikibot.debug('{}\t{}\t{}\t{}'
+    # Get lastname prefix items
+    for name_prefix in name_prefix_list:
+        name_prefix_list[name_prefix] = get_item_page(name_prefix_list[name_prefix])
+
+    deltasecs = int((datetime.now() - now).total_seconds())
+    pywikibot.info('{:d} seconds to initialise'.format(deltasecs))
+
+    # Get list of item numbers
+    inputfile = sys.stdin.read()
+    itemlist = sorted(set(inputfile.splitlines()))
+    pywikibot.debug(itemlist)
+
+    wd_proc_all_items()	    # Execute all items for one language
+
+    """
+        Print all sitelinks (base addresses)
+        PAWS is using tokens (passwords can't be used because Python scripts are public)
+        Shell is using passwords (from user-password.py file)
+    """
+    for site in sorted(pywikibot._sites.values()):
+        if site.username():
+            pywikibot.debug('{}\t{}\t{}\t{}'
                         .format(site, site.username(), site.is_oauth_token_available(), site.logged_in()))
+except Exception as error:
+    # Other exception to be used
+    #raise
+    fatal_error(20, '{} error, {}'.format(init_phase, error))
 
 sys.exit(exitstat)
+
+"""
