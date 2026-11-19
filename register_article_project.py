@@ -28,11 +28,19 @@ Qualifiers:
 
 Examples:
 
+    pwb register_article_project -a
+
+    pwb register_article_project -c
+
+    pwb register_article_project -n
+    
     pwb -user:geertivp register_article_project fr wikipedia
 
     pwb register_article_project -n nl wikipedia Overleden_Wikipedianen
     
     pwb register_article_project -t 0 nl wikipedia - Lokeren 'Stadsarchief Lokeren'
+
+    pwb add_statement p6104:Q135926619
 
 Configuration:
 
@@ -90,7 +98,7 @@ from pywikibot import pagegenerators as pg
 
 # Global technical parameters
 modnm = 'Pywikibot register_article_project'    # Module name (using the Pywikibot package)
-pgmid = '2026-03-11 (gvp)'	        # Program ID and version
+pgmid = '2026-11-19 (gvp)'	        # Program ID and version
 pgmlic = 'MIT License'
 creator = 'User:Geertivp'
 
@@ -98,6 +106,7 @@ MAINLANG = 'en:mul'     # mul can have non-Romain alphabeths; EN was tradional d
 
 # https://www.mediawiki.org/wiki/Help:Namespaces
 MAINNAMESPACE = 0
+TALKNAMESPACE = 1
 PROJECTNAMESPACE = 4
 
 # Languages that doesn't want Discussion project heads
@@ -217,6 +226,7 @@ def get_url_pagename(subject) -> str:
     return subject.strip()
 
 
+# Main program
 # Default values
 include_amended = False
 page_created = False
@@ -238,7 +248,7 @@ while sys.argv and sys.argv[0][0] == '-':
         nularg = sys.argv.pop(0)
         include_amended = True
         pywikibot.info('Include amended pages')
-    if sys.argv[0] == '-c':
+    elif sys.argv[0] == '-c':
         nularg = sys.argv.pop(0)
         page_created = True
         pywikibot.info('Forced creation tag for talk pages')
@@ -286,6 +296,7 @@ try:
         'nl': 'aangemaakt',
     }[mainlang]
 
+    # Ingore talk pages containing Moderator tags
     moderator_tags = {
         'el': r'{{Πρόταση διαγραφής',
         'en': r'{{Article for deletion',
@@ -343,8 +354,10 @@ page_text = 'Dit artikel werd {} in het kader van een [[Event:Erfgoed/Denderland
 page_text = 'Dit artikel werd {} in het kader van een [[Event:GLAM/Huis van Alijn/Wiki Café/Circus|schrijfsessie over circussen en circusartiesten]] van het [[Huis van Alijn]] in samenwerking met [[Wikimedia België]].'
 page_text = 'Dit artikel werd {} in het kader van een [[Event:Wikithon Smells Like Circus|schrijfsessie]] van het [[Circuscentrum]] in het [[Wintercircus (Gent)|Wintercircus Gent]] in samenwerking met [[Huis van Alijn]] en [[Wikimedia België]].'
 page_text = 'Dit artikel werd {} in het kader van [[Event:GLAM/Industriemuseum Gent/Wiki Café/Bakeliet|Bakeliet]], een project van het [[Industriemuseum]] in samenwerking met [[Wikimedia België]].'
+page_text = 'Dit artikel werd {} in het kader van [[Event:België/Internationale Vrouwendag/2026/{}|Internationale vrouwendag 2026]], een project van [[{}]], [[FARO]], [[meemoo]], [[Openbare Bibliotheek Brugge]] en [[Wikimedia België]].'
+page_text = 'Dit artikel werd {} tijdens een [[Event:GLAM/In Flanders Fields Museum/WOI-monumenten|schrijfsesie over WOI-monumenten]] van het [[In Flanders Fields museum]] in samenwerking met [[Wikimedia België]].'
+page_text = 'Dit artikel werd {} in het kader van het [[Wikipedia:Wikiproject/Uit de marge|Uit de marge]] project in de [[Erfgoedbibliotheek Hendrik Conscience]] in samenwerking met [[Wikimedia België]] en [[Wikimedia Nederland]].'
 page_text = 'Dit artikel werd {} in het kader van een [[Event:GLAM/Literair Gent|schrijfsessie]] van [[Literair Gent]] in het [[Stadsmuseum Gent]] in samenwerking met [[Wikimedia België]].'
-page_text = 'Dit artikel werd {} in het kader van [[Event:België/Internationale Vrouwendag/2026/{}|Internationale vrouwendag 2026]], een project van [[{}]], [[FARO]], [[meemoo]] en [[Wikimedia België]].'
 
 
 project_page = '== ' + page_head + ' ==\n' + page_text + ' ~~~~'
@@ -420,6 +433,7 @@ else:
     # Get list of pages from stdin
     inputfile = sys.stdin.read()
     input_list = sorted(set(inputfile.splitlines()))
+
     for subject in input_list:
         try:
             subject = get_url_pagename(subject)
@@ -427,6 +441,7 @@ else:
             if not subject:
                 pass
             elif item_numbers:
+                # Get all item numbers on this line
                 for qnumber in item_numbers:
                     item = get_item_page(qnumber)
                     sitelink = item.sitelinks[sitelang]
@@ -437,18 +452,27 @@ else:
                 pass
             else:
                 # Remove redundant language prefix (Campaign dashboard)
-                len_lang = len(mainlang) + 1
-                if subject[:len_lang] == mainlang + ':':
-                    subject = subject[len_lang:]
-
                 if subject[-7:] == '(nieuw)':
                     # Get page status (Campaign dashboard)
                     subject = subject[:-8]
                     new_page.add(subject)
 
+                #pdb.set_trace()
                 page = pywikibot.Page(site, subject)
-                if page.text:
+                namespace = page.namespace().id
+
+                # Ingore non-native articles, e.g. skip fr:Éliane Vogel-Polsky for nl articles
+                if page.site.lang != mainlang:
+                    pywikibot.info(f'Ignoring {subject}')
+                elif namespace not in [MAINNAMESPACE]: #, TALKNAMESPACE]: ## PROJECTNAMESPACE
+                    pywikibot.error('Ignore namespace {:d}: {}:{}'.format(
+                            namespace, site.namespace(namespace), subject))
+                    pageerr += 1
+                elif page.text:
                     page_list.add(page)
+                else:
+                    pywikibot.warning(f'Page not found {subject}')
+                    skipcnt += 1
         except Exception as error:
             pywikibot.error('{}, {}'.format(subject, error))
         except KeyboardInterrupt:
@@ -468,12 +492,11 @@ while sys.argv:
     inpar = sys.argv.pop(0)
     pywikibot.warning('Redundant parameter or qualifier {}'.format(inpar))
 
-pywikibot.info('{:d} media files in list'.format(len(page_list)))
+pywikibot.info('{:d} project files in list'.format(len(page_list)))
 
 # Start the main transaction timer
 now = datetime.now() + timedelta(seconds=-timer_delta)
 
-#pdb.set_trace()
 result_list = []
 for page in page_list:  # Not sorted
     try:
@@ -488,88 +511,80 @@ for page in page_list:  # Not sorted
             pass
         revision_info = 'Amended by {} on {:.10}'.format(rev.user, str(rev['timestamp']))
 
-        # Get Talk page (odd number)
-        namespace = page.namespace().id
-        if namespace % 2:
-            pywikibot.error('Ignore namespace {:d}: {}:{}'
-                            .format(namespace, site.namespace(namespace), pagename))
-            pageerr += 1
-        elif not page.text:
-            # Empty page's should not have a talk page
-            pywikibot.warning('Page {} not found'.format(pagename))
+        talkpage = pywikibot.Page(site, pagename, TALKNAMESPACE)
+
+        if MODERATORTAGS.search(page.text):
+            # Attention needed
+            pywikibot.warning(f'Moderator tag found in {pagename}')
+
+        # Update or create talk page
+        page_modified = False
+        amend_text = amended_label
+        if page_created or pagename in new_page:
+            amend_text = created_label
+
+        #pdb.set_trace()
+        # Format the project descriptiom
+        try:
+            project_text = project_page.format(amend_text, location, partner)
+        except:
+            project_text = project_page.format(amend_text)
+
+        if pagename not in new_page and not page_created and not include_amended:
+            pywikibot.warning(f'Page {pagename} is not newly created')
             skipcnt += 1
+        elif not talkpage.text:
+            # New talk page
+            talkpage.text = project_text
+            page_modified = True
+        elif PAGEHEADRE.search(talkpage.text):
+            # Could trigger a null-edit when "touching"
+            # Project page allready done
+            pywikibot.info('Page {} already done'.format(pagename))
+            donecnt += 1
         else:
-            # Get lemma talk page
-            lemma = pagename
-            if namespace > 0:
-                # Get lemma name
-                lemma = lemma.split(':', 1)[1]
-            talkpage = pywikibot.Page(site, lemma, namespace + 1)
+            # Append project in talkpage
+            pywikibot.warning('Page {} has already text'.format(talkpage.title()))
+            talkpage.text += '\n\n' + project_text
+            page_modified = True
 
-            if MODERATORTAGS.search(page.text):
-                # Attention needed
-                pywikibot.warning('Moderator tag found in {}'.format(pagename))
+        # Get Wikidata item for Wikimedia page
+        try:
+            # Show Wikidata label and item number (this could be input for another script)
+            # Not required to be logged in for read access
+            item = pywikibot.ItemPage.fromPage(page)
+            qnumber = item.title()
+            page_label = get_item_header(item.labels)
+            result_list.append((page_label, qnumber, revision_info))
+        except Exception as error:
+            # No wikidata item number assigned
+            pywikibot.error('Wikidata registration missing for {}, {}'.format(pagename, error))
+            wderrcnt += 1
 
-            # Update or create talk page
-            page_modified = False
-            amend = amended_label
-            if page_created or pagename in new_page:
-                amend = created_label
+        if page_modified and page_update:
+            # Save a Wikipedia page (max 1/min for non-bot accounts)
+            # A non-bot account should limit its speed to 1 transaction per minute
+            # We could possibly overrule with another timer value
+            timer = timer_delta - (datetime.now() - now).total_seconds()
+            if not wmbotflag and timer > 0.0:
+                time.sleep(timer)
 
-            project_text = project_page.format(amend, location, partner)
-            if pagename not in new_page and not include_amended:
-                pass
-            elif not talkpage.text:
-                # New talk page
-                talkpage.text = project_text
-                page_modified = True
-            elif PAGEHEADRE.search(talkpage.text):
-                # Could trigger a null-edit when "touching"
-                # Project page allready done
-                pywikibot.info('Page {} already done'.format(pagename))
-                donecnt += 1
-            else:
-                # Append project in talkpage
-                pywikibot.warning('Page {} has already text'.format(talkpage.title()))
-                talkpage.text += '\n\n' + project_text
-                page_modified = True
+            # Remove trailing spaces
+            talkpage.text = re.sub(r'[ \t\r\f\v]+$', '', talkpage.text, flags=re.MULTILINE)
+            talkpage.save('#pwb ' + page_head)
+            pagecnt += 1
 
-            if namespace in [MAINNAMESPACE, PROJECTNAMESPACE]:
-                # Get Wikidata item for Wikimedia page
-                try:
-                    # Show Wikidata label and item number (this could be input for another script)
-                    # Not required to be logged in for read access
-                    item = pywikibot.ItemPage.fromPage(page)
-                    qnumber = item.title()
-                    page_label = get_item_header(item.labels)
-                    result_list.append((page_label, qnumber, revision_info))
-                except Exception as error:
-                    # No wikidata item number assigned
-                    pywikibot.error('Error processing {}, {}'.format(pagename, error))
-                    wderrcnt += 1
-
-            if page_modified and page_update:
-                # Save a Wikipedia page (max 1/min for non-bot accounts)
-                # A non-bot account should limit its speed to 1 transaction per minute
-                # We could possibly overrule with another timer value
-                timer = timer_delta - (datetime.now() - now).total_seconds()
-                if not wmbotflag and timer > 0.0:
-                    time.sleep(timer)
-
-                # Remove trailing spaces
-                talkpage.text = re.sub(r'[ \t\r\f\v]+$', '', talkpage.text, flags=re.MULTILINE)
-                talkpage.save('#pwb ' + page_head)
-                pagecnt += 1
-
-                # Restart the main transaction timer
-                now = datetime.now()
+            # Restart the main transaction timer
+            now = datetime.now()
 
     except Exception as error:
         pywikibot.error('Error processing {}, {}'.format(pagename, error))
         pageerr += 1
 
+# List all pages with Wikidata registration
+pywikibot.info('')
 for row in result_list:
     pywikibot.info('{}\t[[d:{}]]\t{}'.format(row[0], row[1], row[2]))
 
-pywikibot.info('{:d} pages processed\n{:d} failed\n{:d} Wikidata item missing\n{:d} already done\n{:d} skipped'
+pywikibot.info('\n{:d} pages processed\n{:d} failed\n{:d} Wikidata item missing\n{:d} already done\n{:d} skipped'
                .format(pagecnt, pageerr, wderrcnt, donecnt, skipcnt))
